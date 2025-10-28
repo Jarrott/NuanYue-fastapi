@@ -29,3 +29,8 @@
 
 ## 简介
 因为FastApi作为后起之秀，框架的性能更适合现代的开发。
+
+```python
+poetry install # 安装依赖
+
+```
