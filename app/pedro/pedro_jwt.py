@@ -15,10 +15,10 @@ from app.pedro.manager import manager as User, manager
 
 
 # ======================================================
-# 🔐 Pedro-Core JWT 统一服务（自动作用域版）
+# 🔐 Pedro-Core JWT 统一服务（带版本号控制）
 # ======================================================
 class JWTService:
-    """Pedro-Core JWT 服务（作用域自动分配 + Redis 撤销）"""
+    """Pedro-Core JWT 服务（作用域 + Redis 撤销 + Version 强制失效）"""
 
     def __init__(self):
         self.settings = get_current_settings()
@@ -35,16 +35,24 @@ class JWTService:
             self.timezone = ZoneInfo("UTC")
 
     # ======================================================
-    # 🧩 创建 Token（作用域自动分配）
+    # 🧩 创建 Token（附带用户 version）
     # ======================================================
     async def create_pair(self, user: User) -> Dict[str, Union[str, List[str]]]:
         """根据用户身份自动生成 Access / Refresh Token"""
         now = datetime.now(self.timezone)
-        # ✅ 自动判断作用域
         scopes = ["admin"] if await user.is_admin() else ["user"]
 
+        r = await rds.instance()
+        version_key = f"user:{user.id}:version"
+        version = await r.get(version_key)
+        if not version:
+            version = 1
+            await r.set(version_key, version)
+
+        # ✅ Payload 增加版本号 ver
         access_payload = {
             "uid": user.id,
+            "ver": int(version),
             "scope": scopes,
             "iat": now,
             "exp": now + self.access_exp,
@@ -52,6 +60,7 @@ class JWTService:
         }
         refresh_payload = {
             "uid": user.id,
+            "ver": int(version),
             "scope": scopes,
             "iat": now,
             "exp": now + self.refresh_exp,
@@ -61,14 +70,14 @@ class JWTService:
         access_token = jwt.encode(access_payload, self.secret, algorithm=self.algorithm)
         refresh_token = jwt.encode(refresh_payload, self.secret, algorithm=self.algorithm)
 
-        r = await rds.instance()
+        # ✅ 存入 Redis（状态 200 = 正常）
         await r.setex(f"token:{user.id}:{access_token}", int(self.access_exp.total_seconds()), "200")
         await r.setex(f"token:{user.id}:{refresh_token}", int(self.refresh_exp.total_seconds()), "200")
 
         return {"access_token": access_token, "refresh_token": refresh_token, "scopes": scopes}
 
     # ======================================================
-    # 🧠 校验 Token + 权限范围
+    # 🧠 校验 Token + 版本号 + 权限范围
     # ======================================================
     async def verify(self, token: str, required_scopes: Optional[List[str]] = None) -> Dict[str, Any]:
         try:
@@ -79,15 +88,23 @@ class JWTService:
             raise UnAuthentication("Token 无效")
 
         uid = payload.get("uid")
+        ver = int(payload.get("ver", 0))
+
         r = await rds.instance()
+
+        # ✅ 检查 Redis 存储状态
         status_value = await r.get(f"token:{uid}:{token}")
         if status_value != "200":
             raise UnAuthentication("Token 已失效或被撤销")
 
-        # ✅ 自动作用域验证
+        # ✅ 检查用户 version 是否匹配
+        redis_ver = await r.get(f"user:{uid}:version")
+        if redis_ver and int(redis_ver) != ver:
+            raise UnAuthentication("Token 已失效（版本不匹配）")
+
+        # ✅ 权限校验
         if required_scopes:
             token_scopes = set(payload.get("scope", []))
-            # 超级管理员拥有全部权限
             if "admin" in token_scopes:
                 return payload
             if not any(scope in token_scopes for scope in required_scopes):
@@ -111,12 +128,21 @@ class JWTService:
         return {"msg": "Token 已撤销"}
 
     async def revoke_all(self, uid: int) -> Dict[str, str]:
-        """撤销用户所有 Token"""
+        """撤销用户所有 Token（旧逻辑，遍历 keys）"""
         r = await rds.instance()
         keys = await r.keys(f"token:{uid}:*")
         for k in keys:
             await r.setex(k, 3600, "403")
         return {"msg": "用户所有 Token 已失效"}
+
+    # ======================================================
+    # 🚀 版本号控制（推荐强制登出方式）
+    # ======================================================
+    async def bump_version(self, uid: int) -> Dict[str, str]:
+        """强制用户所有 Token 立即失效（版本号 +1）"""
+        r = await rds.instance()
+        new_ver = await r.incr(f"user:{uid}:version")
+        return {"msg": f"用户 {uid} Token 版本号已更新为 {new_ver}，旧 Token 全部失效"}
 
 
 # ======================================================

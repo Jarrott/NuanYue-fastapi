@@ -35,24 +35,33 @@ class ServiceManager:
     # ======================================================
     @classmethod
     async def init_all(cls):
-        """自动发现并加载所有 BaseService 子类"""
-        print("🔍 ServiceManager: 正在扫描 app/extension 下的服务模块...")
-        for finder, name, ispkg in pkgutil.iter_modules(["app/extension"]):
+        """递归扫描 app/extension 下的服务模块"""
+        print("🔍 ServiceManager: 正在递归扫描 app/extension 下的服务模块...")
+
+        def iter_modules_recursively(package_path, package_name):
+            for finder, name, ispkg in pkgutil.iter_modules([package_path]):
+                full_name = f"{package_name}.{name}"
+                yield full_name
+                if ispkg:
+                    subpath = f"{package_path}/{name}"
+                    yield from iter_modules_recursively(subpath, full_name)
+
+        for module_name in iter_modules_recursively("app/extension", "app.extension"):
             try:
-                module = importlib.import_module(f"app.extension.{name}")
+                module = importlib.import_module(module_name)
                 for attr_name in dir(module):
                     obj = getattr(module, attr_name)
                     if (
-                        inspect.isclass(obj)
-                        and issubclass(obj, BaseService)
-                        and obj is not BaseService
+                            inspect.isclass(obj)
+                            and issubclass(obj, BaseService)
+                            and obj is not BaseService
                     ):
                         instance = obj()
                         await instance.init()
                         cls._services[obj.name] = instance
                         print(f"✅ 已加载服务: {obj.name}")
             except Exception as e:
-                print(f"⚠️ 加载服务模块失败: {name}, 原因: {e}")
+                print(f"⚠️ 加载服务模块失败: {module_name}, 原因: {e}")
 
     # ======================================================
     # 获取服务

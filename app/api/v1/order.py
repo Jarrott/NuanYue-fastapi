@@ -1,48 +1,41 @@
-# app/api/v1/order.py
+# app/api/v1/order_api.py
 from fastapi import APIRouter
-import uuid, time
-from app.pedro.service_manager import ServiceManager
 
-rp = APIRouter(prefix="/order", tags=["订单"])
+from app.extension.rabbitmq.constances import QUEUE_ORDER_DELAY
+from app.pedro import async_session_factory
+from app.api.v1.model.order import Order
+from app.extension.rabbitmq.rabbit import rabbit as rabbitmq_service, rabbit
+from app.extension.redis.redis_client import rds
+
+rp = APIRouter(prefix="/order", tags=["订单测试"])
+
 
 @rp.post("/create")
-async def create_order(uid: str, item_id: str):
-    """
-    创建订单：
-    - 写 Hash: order:data:{order_id}
-    - 写状态: order:status:{order_id} = pending
-    - 写哨兵: order:pending:{order_id} EX=10 （过期触发Keyspace事件）
-    """
-    order_id = f"{uid}:{uuid.uuid4().hex[:8]}"
-    redis = ServiceManager.get("redis")
+async def create_order():
+    user_id, product_id, amount = 1, 1001, 100
 
-    await redis.hset(f"order:data:{order_id}", {
-        "uid": uid,
-        "item_id": item_id,
-        "created_at": str(int(time.time())),
-    })
-    await redis.set(f"order:status:{order_id}", "pending")
-    await redis.set(f"order:pending:{order_id}", "1", ex=10)  # TTL 10秒
+    order = await Order.create(user_id=user_id, product_id=product_id,
+                               amount=amount, commit=True)
+    print(f"🆔 创建订单成功 ID={order.id}")
 
-    return {"order_id": order_id, "status": "pending", "ttl_seconds": 10}
+    await rabbit.publish_delay(
+        message={"order_id": order.id, "user_id": user_id},
+        delay_ms=10000
+    )
+
+    return {"msg": "订单创建成功，10秒后完成", "order_id": order.id}
+
+# 临时增加一个调试接口
+@rp.get("/_debug/rabbit")
+async def debug_rabbit():
+    ch = await rabbit._ensure_channel()
+    # passive=True 不会创建，仅获取属性；不存在则报错，便于定位
+    q = await ch.declare_queue(QUEUE_ORDER_DELAY, passive=True)
+    return {"queue": QUEUE_ORDER_DELAY, "message_count": q.declaration_result.message_count}
 
 
-@rp.post("/complete")
-async def complete_order(order_id: str):
-    """
-    标记订单完成（在TTL内调用则不会触发过期推送）
-    """
-    redis = ServiceManager.get("redis")
-    await redis.set(f"order:status:{order_id}", "completed")
-
-    # 可选：立刻给用户推送「已完成」
-    data = await redis.hgetall(f"order:data:{order_id}")
-    uid = data.get("uid", "unknown")
-    from app.extension.websocket.wss import websocket_manager
-    await websocket_manager.send_to_user(uid, {
-        "type": "order_completed",
-        "order_id": order_id,
-        "msg": "订单已完成 ✅"
-    })
-
-    return {"order_id": order_id, "status": "completed"}
+@rp.get("/{order_id}")
+async def get_order(order_id: int):
+    """查询订单状态"""
+    status = await rds.get(f"order:{order_id}:status")
+    return {"order_id": order_id, "status": status or "unknown"}

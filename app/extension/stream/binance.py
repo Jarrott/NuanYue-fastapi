@@ -4,15 +4,15 @@
 # @File    : binance.py
 # @Software: PyCharm
 """
-from app.pedro import async_session_factory
 import asyncio
 import json
 import ssl
 import time
 import traceback
 import websockets
-from redis import asyncio as aioredis
 from typing import List
+from redis import asyncio as aioredis
+
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.pedro.config import get_current_settings
 from app.extension.websocket.wss import websocket_manager
@@ -39,64 +39,95 @@ class BinanceKlineStream:
         self.redis = redis
         self.url = f"wss://stream.binance.com:9443/ws/{self.symbol}@kline_{self.interval}"
         self.last_emit_ts = 0
-        self.coalesce_ms = 500
+        self.coalesce_ms = 800  # 聚合时间阈值（防止高频推送）
 
     async def connect(self):
-        """主循环"""
+        """主循环：保持长连，自动重连"""
         backoff = 1
         while True:
             try:
                 async with websockets.connect(self.url, ssl=ssl.SSLContext()) as ws:
                     STREAM_HEARTBEAT[f"{self.symbol}-{self.interval}"] = time.strftime("%H:%M:%S")
+                    # print(f"🔌 [{self.symbol}-{self.interval}] 已连接 Binance Stream")
                     while True:
                         msg = await ws.recv()
                         await self.handle_message(msg)
             except Exception as e:
+                print(f"⚠️ [{self.symbol}-{self.interval}] 连接断开，重试中: {e}")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
 
     async def handle_message(self, msg: str):
-        """处理消息"""
+        """处理实时 K线消息"""
         try:
             data = json.loads(msg)
             if data.get("e") != "kline":
                 return
 
             k = data["k"]
+            symbol = k["s"].upper()
+            interval = k["i"]
+            channel = f"{symbol.lower()}-{interval}"  # ✅ 统一频道命名
+            now_ms = int(time.time() * 1000)
+
             payload = {
-                "symbol": k["s"],
-                "interval": k["i"],
-                "t": k["t"],
-                "o": k["o"],
-                "h": k["h"],
-                "l": k["l"],
-                "c": k["c"],
-                "v": k["v"],
-                "n": k["n"],
-                "closed": k["x"]
+                "symbol": symbol,
+                "interval": interval,
+                "open": k["o"],
+                "high": k["h"],
+                "low": k["l"],
+                "close": k["c"],
+                "volume": k["v"],
+                "trades": k["n"],
+                "timestamp": k["t"],
+                "closed": k["x"],
             }
 
+            # ✅ 缓存最新 K线
             await self.redis.set(
-                REDIS_SNAPSHOT.format(symbol=k["s"], interval=k["i"]),
+                REDIS_SNAPSHOT.format(symbol=symbol, interval=interval),
                 json.dumps(payload),
-                ex=600
+                ex=600,
             )
             await self.redis.set(
-                REDIS_LAST_KEY.format(symbol=k["s"], interval=k["i"]),
-                k["t"],
-                ex=600
+                REDIS_LAST_KEY.format(symbol=symbol, interval=interval),
+                now_ms,
+                ex=600,
             )
 
-            now_ms = int(time.time() * 1000)
+            # ✅ 限流：避免频繁广播
             if not k["x"] and (now_ms - self.last_emit_ts < self.coalesce_ms):
                 return
-
-            await websocket_manager.broadcast(
-                f"realtime_kline:{k['s']}:{k['i']}", payload
-            )
             self.last_emit_ts = now_ms
+
+            # ✅ 推送至 WebSocket 频道
+            await websocket_manager.broadcast(
+                f"{symbol.lower()}-{interval}",
+                {
+                    "type": "ticker",  # ✅ 前端监听字段
+                    "symbol": symbol.upper(),
+                    "close": k["c"],
+                    "volume": k["v"],
+                    "interval": interval
+                }
+            )
+
+            # ✅ 打印调试
+            # print(f"📤 推送频道 {channel} | 收盘价 {k['c']} | 成交量 {k['v']}")
+
         except Exception as e:
             print(f"⚠️ [{self.symbol}] 解析异常: {e}")
+            traceback.print_exc()
+
+        await websocket_manager.broadcast_all(
+            {
+                "type": "ticker",
+                "symbol": symbol.upper(),
+                "close": k["c"],
+                "volume": k["v"],
+                "interval": interval
+            }
+        )
 
 
 # =========================================================
@@ -133,15 +164,18 @@ class KlineHub:
         elapsed = time.time() - start_time
         print(f"✅ Binance Stream 启动完成，共监听 {connected}/{total} 条流，用时 {elapsed:.2f}s")
 
+        # 启动心跳
         asyncio.create_task(self._heartbeat())
 
     async def _heartbeat(self):
+        """输出当前活跃流状态"""
         while True:
             active = len(STREAM_HEARTBEAT)
-            print(f"💗 Binance Stream Heartbeat: {active} active")
+            print(f"💗 Binance Stream Heartbeat: {active} active streams")
             await asyncio.sleep(60)
 
     async def stop(self):
+        """安全关闭"""
         for task in self.tasks:
             task.cancel()
         self.tasks.clear()
@@ -158,6 +192,7 @@ async def start_realtime_market(pairs: List[List[str]] = None):
     """FastAPI 启动时运行（热门币自动采集）"""
     global kline_hub
     if not pairs:
+        # 从数据库加载前20个热门币
         result = await CryptoAsset.get(one=False, is_hot=True)
         pairs = [[f"{a.symbol.upper()}USDT", ["1m"]] for a in result[:20]]
 

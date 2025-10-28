@@ -20,6 +20,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.handler.response import SuccessResponse, LoginSuccessResponse
+from app.extension.websocket.wss import websocket_manager
 from app.pedro import manager, UserGroup
 # from PIL import Image, ImageDraw, ImageFont
 
@@ -244,3 +245,8 @@ async def admin_access():
 # async def get_usdt_address(current_user: User = Depends(get_current_user)):
 #     address = await get_user_tron_wallet(current_user.id)
 #     return {"address": address}
+
+@rp.get("/push/message")
+async def broadcast_system_announcement():
+    await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
+    print(f"📣 已全局广播系统消息: ")

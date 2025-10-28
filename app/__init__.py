@@ -9,7 +9,7 @@ FastAPI 应用初始化入口 (Pedro-Core 适配版)
 ✅ Pedro-Core 初始化（数据库 + 权限模型）
 ✅ Binance 实时行情监听后台任务
 """
-
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -37,9 +37,12 @@ logger = setup_logger("pedro_core")
 # ======================================================
 def register_blueprints(app: FastAPI):
     """注册 API 模块（原 Flask 蓝图）"""
-    from app.api import create_v1
+    from app.api import create_v1, create_cms
+
     router_v1 = create_v1()
+    router_cms = create_cms()
     app.include_router(router_v1)
+    app.include_router(router_cms)
     logger.info("✅ 已注册 API 模块: v1")
 
 
@@ -94,7 +97,12 @@ def register_pedro_core():
 async def init_service_modules():
     """注册 Redis / MQ / 等外部服务"""
     from app.pedro.service_manager import service
+
+    logger.info("🪄 正在初始化外部服务 (Redis / MQ / EventBus / WebSocket)...")
+
+    # 并发启动所有 BaseService.init()
     await service.init_all()
+
     logger.info("✅ 异步服务模块启动完成")
 
     async def cleanup():
@@ -104,7 +112,8 @@ async def init_service_modules():
     return cleanup
 
 
-async def init_stream_tasks():
+
+async def init_binance_stream_tasks():
     """启动 Binance 实时行情监听"""
     from app.extension.stream.binance import start_realtime_market
     await start_realtime_market()
@@ -128,7 +137,7 @@ async def lifespan(app: FastAPI):
     await register_pedro_core()(app)
 
     # 3️⃣ 初始化异步任务流（例如 Binance Stream）
-    await init_stream_tasks()
+    asyncio.create_task(init_binance_stream_tasks())  # ✅ Binance
 
     logger.info("✅ 所有模块初始化完成，系统启动成功。")
 

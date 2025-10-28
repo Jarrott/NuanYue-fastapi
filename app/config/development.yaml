@@ -99,12 +99,12 @@ roles:
   #   user:     ["guest"]
 
 rabbitmq:
-  host: localhost
+  host: 128.0.0.1
   port: 5672
   username: admin
   password: admin
   virtual_host: "/"
-  url: "amqp://admin:admin@localhost:5672/"
+  url: ${RABBITMQ_URL}
   default_exchange: ""
   default_queue: "task_queue"
 

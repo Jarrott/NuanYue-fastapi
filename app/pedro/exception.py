@@ -111,6 +111,14 @@ def register_exception_handlers(app):
         logger.logger.error(f"[UnhandledException] {request.method} {request.url.path}\n{tb_str}")
         return await build_error_response(request, "服务器内部错误，请稍后重试", 9999, 500)
 
+    # ✅ 为 WebSocket 放行
+    @app.middleware("http")
+    async def websocket_origin_middleware(request, call_next):
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+        return await call_next(request)
+
+
 
 async def build_error_response(request: Request, msg: str, error_code: int, http_code: int):
     lang = request.headers.get("Accept-Language", "zh").split(",")[0].strip().lower()

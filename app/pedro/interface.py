@@ -75,9 +75,9 @@ class BaseCrud(BaseModel):
             obj = cls(**data)
             session.add(obj)
             await session.flush()
+            await session.refresh(obj)  # ✅ 关键：刷新以获取数据库分配的主键
             if commit:
                 await session.commit()
-                await session.refresh(obj)
             return obj
 
     # ======================================================

@@ -1,11 +1,9 @@
-"""
-Pedro-Core | RabbitMQ 异步客户端（支持自动延迟连接）
-"""
 import json
 import aio_pika
 from aio_pika import Message
-from typing import Any, Optional, Callable
+from typing import Any, Callable
 from app.config.settings_manager import get_current_settings
+from app.extension.rabbitmq.constances import ROUTING_ORDER_DELAY, EXCHANGE_DELAY
 
 
 class RabbitClient:
@@ -15,45 +13,61 @@ class RabbitClient:
         self._initialized = False
 
     async def _ensure_channel(self):
-        """确保连接和通道存在"""
+        """确保通道存在"""
         if self._initialized and self._channel:
             return self._channel
+
         settings = get_current_settings()
-        url = settings.rabbitmq.amqp_url
+        url = settings.rabbitmq.url
         self._connection = await aio_pika.connect_robust(url)
         self._channel = await self._connection.channel()
         self._initialized = True
         print(f"🐇 RabbitMQ 已连接: {url}")
         return self._channel
 
-    async def publish(self, body: Any, routing_key: str, exchange_name: str = ""):
-        """发送消息（自动连接）"""
-        channel = await self._ensure_channel()
-        if isinstance(body, (dict, list)):
-            body = json.dumps(body, ensure_ascii=False).encode()
-        elif isinstance(body, str):
-            body = body.encode()
-        msg = Message(body)
-        await channel.default_exchange.publish(msg, routing_key=routing_key)
-        print(f"📤 发布消息到 {routing_key}: {body}")
+    # async def publish_delay(self, queue: str, message: Any, delay_ms: int = 10000):
+    #     """
+    #     发布延迟消息（基于 x-delayed-message 插件）
+    #     """
+    #     channel = await self._ensure_channel()
+    #     if isinstance(message, (dict, list)):
+    #         message = json.dumps(message, ensure_ascii=False)
+    #     if isinstance(message, str):
+    #         message = message.encode()
+    #
+    #     args = {"x-delayed-type": "direct"}
+    #     exchange = await channel.declare_exchange(
+    #         "delay-exchange",
+    #         aio_pika.ExchangeType.X_DELAYED_MESSAGE,
+    #         durable=False,
+    #         arguments=args,
+    #     )
+    #
+    #     queue_obj = await channel.declare_queue(queue, durable=True)
+    #     await queue_obj.bind(exchange, routing_key=queue)
+    #
+    #     await exchange.publish(
+    #         aio_pika.Message(
+    #             body=message,
+    #             headers={"x-delay": delay_ms},
+    #             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+    #         ),
+    #         routing_key=queue,
+    #     )
+    #     print(f"📦 已发布延迟消息 -> {queue} | 延迟 {delay_ms / 1000:.1f}s")
+    async def publish_delay(self, message: dict, delay_ms: int = 10_000):
+        ch = await self._ensure_channel()
+        exchange = await ch.get_exchange(EXCHANGE_DELAY)
+        msg = aio_pika.Message(
+            body=json.dumps(message).encode(),
+            headers={"x-delay": delay_ms},
+            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            content_type="application/json",
+        )
+        await exchange.publish(msg, routing_key=ROUTING_ORDER_DELAY)
+        print(f"📦 [PublishDelay] -> {EXCHANGE_DELAY}:{ROUTING_ORDER_DELAY} "
+              f"delay={delay_ms}ms body={message}")
 
-    async def publish_delay(self, queue_name: str, message: str, delay_ms: int = 10000):
-        """延迟消息（依赖 x-delayed-message 插件）"""
-        args = {"x-delayed-type": "direct"}
-        exchange = await self.channel.declare_exchange(
-            "delay-exchange", aio_pika.ExchangeType.X_DELAYED_MESSAGE, arguments=args
-        )
-        queue = await self.channel.declare_queue(queue_name, durable=True)
-        await queue.bind(exchange, routing_key=queue_name)
-        await exchange.publish(
-            aio_pika.Message(
-                body=message.encode(),
-                headers={"x-delay": delay_ms},
-                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            ),
-            routing_key=queue_name,
-        )
-        print(f"📦 已发布延迟消息 {queue_name}, 延迟 {delay_ms / 1000:.1f}s")
 
     async def consume(self, queue_name: str, callback: Callable[[Any], Any]):
         """消费消息"""
@@ -65,20 +79,18 @@ class RabbitClient:
     @staticmethod
     async def _process(msg, callback):
         async with msg.process():
-            data = msg.body.decode()
+            body = msg.body.decode()
             try:
-                data = json.loads(data)
+                data = json.loads(body)
             except Exception:
-                pass
+                data = body
             await callback(data)
 
     async def close(self):
-        """关闭连接"""
         if self._connection:
             await self._connection.close()
             self._initialized = False
-            print("🛑 RabbitMQ 已断开连接")
+            print("🛑 RabbitMQ 已关闭连接")
 
-
-# ✅ 单例实例
+# ✅ 单例
 rabbit = RabbitClient()
