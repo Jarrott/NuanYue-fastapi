@@ -19,7 +19,7 @@
 </p>
 
 <blockquote align="center">
-  <em>Lin-CMS</em> （Pedro-CMS-FastApi是借鉴了Lin-CMS的书写风格还有设计哲学进行改造的）Lin-CMS是林间有风团队经过大量项目实践所提炼出的一套<strong>内容管理系统框架</strong>。<br>
+（Pedro-CMS-FastApi是借鉴了Lin-CMS的书写风格还有设计哲学进行改造的）Lin-CMS是林间有风团队经过大量项目实践所提炼出的一套<strong>内容管理系统框架</strong>。<br>
  Lin-CMS 可以有效的帮助开发者提高 CMS 的开发效率。
 </blockquote>
 
