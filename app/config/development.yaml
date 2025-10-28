@@ -1,0 +1,135 @@
+# ===============================
+# Pedro-Core 全局配置示例
+# ===============================
+
+app:
+  name: Pedro-Core
+  version: 1.0.0
+  env: dev               # 可选：dev / staging / prod
+  debug: true
+  log_level: DEBUG
+  timezone: Asia/Tokyo
+  host: 127.0.0.1
+  port: 5001
+  oss_domain: "https://oss.qi-yue.vip/"
+
+# ===============================
+# 数据库配置
+# ===============================
+database:
+  url: postgresql+asyncpg://postgres:jiandan@localhost:5432/lin
+  pool_size: 10
+  max_overflow: 20
+  echo: false
+  auto_create: true
+
+# ===============================
+# JWT / Auth 配置
+# ===============================
+auth:
+  secret: "lin-secret" # 上产环境要换掉
+  algorithm: HS256
+  access_expires_in: 3600        # 秒
+  refresh_expires_in: 1 # 天
+  issuer: Pedro-Core
+
+# ===============================
+# 日志配置
+# ===============================
+logger:
+  level: DEBUG
+  log_to_file: true
+  log_path: logs/
+  rotation: 1 week
+  retention: 30 days
+
+# ===============================
+# Redis 缓存配置
+# ===============================
+redis:
+  host: localhost
+  port: 55000
+  db: 0
+  password: ${REDIS_PASSWORD}
+  redis_url: ${REDIS_URL}
+
+# ===============================
+# 邮件服务配置
+# ===============================
+email:
+  smtp_server: smtp.gmail.com
+  smtp_port: 587
+  username: your_email@gmail.com
+  password: ${EMAIL_PASSWORD}    # 👈 可被 .env 环境变量替换
+  use_tls: true
+
+# ===============================
+# 文件存储配置
+# ===============================
+storage:
+  provider: local                # 可选 local / s3 / gcs / tencent
+  path: ./uploads/
+  max_size_mb: 10
+  include_ext: ["jpg", "png", "jpeg"]
+  exclude_ext: ["exe", "bat"]
+
+# ===============================
+# 插件模块配置（可扩展）
+# ===============================
+plugins:
+  enable_example_plugin: true
+  path: ./app/plugins
+  allowed: ["book", "wallet", "user"]
+
+# ===============================
+# 通知系统配置（WebSocket / Email / Slack）
+# ===============================
+notify:
+  enable_socketio: true
+  enable_email: false
+  enable_slack: false
+
+roles:
+  hierarchy: ["admin", "merchant", "agent", "user", "guest"]
+  # 或者自定义 implies（写了 implies 就不再用 hierarchy 自动推导）
+  # implies:
+  #   admin:    ["merchant","agent","user","guest"]
+  #   merchant: ["agent","user","guest"]
+  #   agent:    ["user","guest"]
+  #   user:     ["guest"]
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  username: admin
+  password: admin
+  virtual_host: "/"
+  url: "amqp://admin:admin@localhost:5672/"
+  default_exchange: ""
+  default_queue: "task_queue"
+
+# 用户 extra 默认配置
+extra:
+  default:
+    vip_status: false        # 是否为VIP用户
+    vip_expire_at: null      # VIP到期时间
+    points: 0                # 积分
+    balance: 0               # 余额
+    level: "normal"          # 等级
+
+    settings:
+      theme: "light"         # UI主题
+      lang: "en-US"          # 默认语言
+
+    referral:
+      inviter_id: null       # 邀请者ID
+      l1_id: null            # 一级推荐
+      l2_id: null
+      l3_id: null
+      ref_path: ""           # 推荐路径
+      invite_code: null      # 邀请码
+
+tencent:
+  tmt:
+    secret_id: ${TENCENT_SECRET_ID}
+    secret_key: ${TENCENT_SECRET_KEY}
