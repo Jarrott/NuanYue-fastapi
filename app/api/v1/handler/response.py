@@ -20,3 +20,9 @@ class LoginSuccessResponse(PedroBaseModel):
     access_token: str = ""
     refresh_token: str = ""
     code: int = 2002
+
+class HotCryptoResponse(PedroBaseModel):
+    access_token: str = ""
+    refresh_token: str = ""
+    data: Optional[list[dict]] = {}
+    code: int = 2002

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Binance Realtime Kline</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5"></script>
+  <style>
+    html, body, #chart {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background-color: #0d1117;
+    }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+
+  <script>
+    const ws = new WebSocket("ws://localhost:5001/v1/ws/market"); // 👈 改成你的后端地址
+    const chartDom = document.getElementById("chart");
+    const chart = echarts.init(chartDom);
+
+    const data = []; // 存储K线
+    const category = []; // 时间轴
+
+    const option = {
+      backgroundColor: "#0d1117",
+      title: { text: "BTC/USDT Realtime", textStyle: { color: "#fff" } },
+      xAxis: { type: "category", data: category },
+      yAxis: { scale: true },
+      series: [{
+        type: "candlestick",
+        data: data,
+        itemStyle: {
+          color: "#26a69a",
+          color0: "#ef5350",
+          borderColor: "#26a69a",
+          borderColor0: "#ef5350",
+        }
+      }]
+    };
+
+    chart.setOption(option);
+
+    ws.onopen = () => {
+      console.log("✅ WebSocket connected.");
+      // 定期心跳防止断线
+      setInterval(() => ws.send("ping"), 15000);
+    };
+
+    ws.onmessage = (event) => {
+      const { event: evt, data: k } = JSON.parse(event.data);
+      if (!evt.startsWith("realtime_kline:BTCUSDT:1m")) return;
+
+      // Binance payload:
+      // { o, h, l, c, t, ... }
+      const ts = new Date(k.t).toLocaleTimeString();
+      const candle = [+k.o, +k.c, +k.l, +k.h];
+
+      const index = category.indexOf(ts);
+      if (index >= 0) {
+        data[index] = candle;
+      } else {
+        category.push(ts);
+        data.push(candle);
+        if (data.length > 100) {
+          data.shift();
+          category.shift();
+        }
+      }
+      chart.setOption({ xAxis: { data: category }, series: [{ data }] });
+    };
+
+    ws.onclose = () => console.log("❌ WebSocket closed.");
+  </script>
+</body>
+</html>

@@ -2,19 +2,22 @@
 """
 FastAPI 应用初始化入口 (Pedro-Core 适配版)
 --------------------------------------------
-兼容原 Flask 架构的注册逻辑：
+✅ lifespan 模式 (替代 on_event)
 ✅ 模块自动注册 (蓝图)
 ✅ Redis / MQ / SocketIO 初始化
 ✅ 日志 / CORS / 异常 / 配置加载
 ✅ Pedro-Core 初始化（数据库 + 权限模型）
+✅ Binance 实时行情监听后台任务
 """
 
 import os
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from app.config.settings_manager import get_current_settings
 from app.pedro.syslogger import setup_logger
+
 
 # ======================================================
 # 🧩 环境初始化
@@ -67,31 +70,14 @@ def register_logger(app: FastAPI):
     logger.info("✅ 日志系统初始化完成")
 
 
-def register_service_extensions(app: FastAPI):
-    """注册 Redis / RabbitMQ 等外部服务"""
-    from app.pedro.service_manager import service
-
-    @app.on_event("startup")
-    async def startup_service():
-        await service.init_all()
-        logger.info("✅ 异步服务模块启动完成")
-
-    @app.on_event("shutdown")
-    async def shutdown_service():
-        await service.close_all()
-        logger.info("🧹 异步服务模块已关闭")
-
-
-def register_pedro_core(app: FastAPI):
+def register_pedro_core():
     """Pedro-Core 初始化（数据库 + 权限模型 + Manager）"""
     from app.pedro.pedro import init_pedro_core
     from app.api.cms.model import (
         User, Group, UserGroup,
         UserIdentity, GroupPermission, Permission
     )
-
-    @app.on_event("startup")
-    async def startup_core():
+    async def startup_core(app):
         await init_pedro_core(
             app=app,
             group_model=Group,
@@ -102,6 +88,54 @@ def register_pedro_core(app: FastAPI):
             user_group_model=UserGroup
         )
         logger.info("🌿 Pedro-Core 已初始化完成")
+    return startup_core
+
+
+async def init_service_modules():
+    """注册 Redis / MQ / 等外部服务"""
+    from app.pedro.service_manager import service
+    await service.init_all()
+    logger.info("✅ 异步服务模块启动完成")
+
+    async def cleanup():
+        await service.close_all()
+        logger.info("🧹 异步服务模块已关闭")
+
+    return cleanup
+
+
+async def init_stream_tasks():
+    """启动 Binance 实时行情监听"""
+    from app.extension.stream.binance import start_realtime_market
+    await start_realtime_market()
+    logger.info("📡 Binance 实时行情监听已启动")
+
+
+# ======================================================
+# 🧬 lifespan 生命周期管理器
+# ======================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """统一管理 startup / shutdown"""
+
+    # ---- startup 阶段 ----
+    logger.info("🚀 FastAPI 启动中，正在初始化模块...")
+
+    # 1️⃣ 初始化所有扩展服务（包括 Redis/MQ/EventBusService）
+    await init_service_modules()
+
+    # 2️⃣ 注册 Pedro Core（JWT、中间件、异常、蓝图）
+    await register_pedro_core()(app)
+
+    # 3️⃣ 初始化异步任务流（例如 Binance Stream）
+    await init_stream_tasks()
+
+    logger.info("✅ 所有模块初始化完成，系统启动成功。")
+
+    yield
+
+    # ---- shutdown 阶段 ----
+    logger.info("🧹 FastAPI 正在关闭中，清理资源...")
 
 
 # ======================================================
@@ -115,16 +149,15 @@ def create_app() -> FastAPI:
         title=settings.app.name,
         version=settings.app.version,
         description="Pedro CMS built on FastAPI",
-        debug=settings.app.debug
+        debug=settings.app.debug,
+        lifespan=lifespan,   # ✅ 新增：lifespan 生命周期控制
     )
 
-    # 注册所有模块
+    # 注册模块和中间件
     register_logger(app)
     register_blueprints(app)
     register_cors(app)
     register_exception_handlers(app)
-    register_service_extensions(app)
-    register_pedro_core(app)
 
-    logger.info(f"🚀 Pedro-Core FastAPI 初始化完成 | 环境: {settings.app.env}")
+    logger.info(f"✅ Pedro-Core FastAPI 初始化完成 | 环境: {settings.app.env}")
     return app

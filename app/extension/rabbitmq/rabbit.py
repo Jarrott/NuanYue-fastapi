@@ -37,6 +37,24 @@ class RabbitClient:
         await channel.default_exchange.publish(msg, routing_key=routing_key)
         print(f"📤 发布消息到 {routing_key}: {body}")
 
+    async def publish_delay(self, queue_name: str, message: str, delay_ms: int = 10000):
+        """延迟消息（依赖 x-delayed-message 插件）"""
+        args = {"x-delayed-type": "direct"}
+        exchange = await self.channel.declare_exchange(
+            "delay-exchange", aio_pika.ExchangeType.X_DELAYED_MESSAGE, arguments=args
+        )
+        queue = await self.channel.declare_queue(queue_name, durable=True)
+        await queue.bind(exchange, routing_key=queue_name)
+        await exchange.publish(
+            aio_pika.Message(
+                body=message.encode(),
+                headers={"x-delay": delay_ms},
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            ),
+            routing_key=queue_name,
+        )
+        print(f"📦 已发布延迟消息 {queue_name}, 延迟 {delay_ms / 1000:.1f}s")
+
     async def consume(self, queue_name: str, callback: Callable[[Any], Any]):
         """消费消息"""
         channel = await self._ensure_channel()

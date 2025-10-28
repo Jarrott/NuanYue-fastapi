@@ -9,6 +9,7 @@ Pedro-Core 接口定义层（Interface Layer）
 
 from __future__ import annotations
 from datetime import datetime
+from sqlalchemy import select
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from sqlalchemy import (
@@ -25,9 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import declarative_mixin
 
-from app.pedro.db import BaseModel
+from app.pedro.db import BaseModel, async_session_factory
 from .enums import GroupLevelEnum
-
 
 T = TypeVar("T", bound="BaseCrud")
 
@@ -41,38 +41,93 @@ class BaseCrud(BaseModel):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # -------- 通用查询 --------
+    # ======================================================
+    # 🔍 通用查询（单条 / 多条）
+    # ======================================================
     @classmethod
     async def get(
-        cls: Type[T],
-        session: AsyncSession,
-        *,
-        one: bool = True,
-        **filters: Any,
+            cls: Type[T],
+            *,
+            one: bool = True,
+            **filters: Any,
     ) -> Union[Optional[T], List[T]]:
-        stmt = cls.select().filter_by(**filters)
-        if one:
-            result = await session.execute(stmt.limit(1))
-            return result.scalar_one_or_none()
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
+        async with async_session_factory() as session:
+            stmt = select(cls).filter_by(**filters)
+            result = await session.execute(stmt.limit(1) if one else stmt)
+            return result.scalar_one_or_none() if one else list(result.scalars().all())
 
+    # ======================================================
+    # 🔢 计数查询
+    # ======================================================
     @classmethod
-    async def count(cls, session: AsyncSession, **filters: Any) -> int:
-        stmt = cls.select(func.count(cls.id)).filter_by(**filters)
-        result = await session.execute(stmt)
-        return int(result.scalar() or 0)
+    async def count(cls, **filters: Any) -> int:
+        async with async_session_factory() as session:
+            stmt = select(func.count(cls.id)).filter_by(**filters)
+            result = await session.execute(stmt)
+            return int(result.scalar() or 0)
 
-    async def update(self: T, session: AsyncSession, **data: Any) -> T:
-        for k, v in data.items():
-            if hasattr(self, k):
-                setattr(self, k, v)
-        session.add(self)
-        await session.flush()
-        return self
+    # ======================================================
+    # 🆕 创建记录
+    # ======================================================
+    @classmethod
+    async def create(cls: Type[T], commit: bool = True, **data: Any) -> T:
+        async with async_session_factory() as session:
+            obj = cls(**data)
+            session.add(obj)
+            await session.flush()
+            if commit:
+                await session.commit()
+                await session.refresh(obj)
+            return obj
 
-    async def delete(self: T, session: AsyncSession) -> None:
-        await session.delete(self)
+    # ======================================================
+    # 🔁 Upsert（存在则更新，否则创建）
+    # ======================================================
+    @classmethod
+    async def upsert(cls: Type[T], where: dict, data: dict, commit: bool = True) -> T:
+        async with async_session_factory() as session:
+            stmt = select(cls).filter_by(**where)
+            result = await session.execute(stmt.limit(1))
+            instance = result.scalar_one_or_none()
+
+            if instance:
+                for k, v in data.items():
+                    if hasattr(instance, k):
+                        setattr(instance, k, v)
+                session.add(instance)
+            else:
+                instance = cls(**{**where, **data})
+                session.add(instance)
+
+            await session.flush()
+            if commit:
+                await session.commit()
+                await session.refresh(instance)
+            return instance
+
+    # ======================================================
+    # ✏️ 更新当前实例
+    # ======================================================
+    async def update(self: T, commit: bool = False, **data: Any) -> T:
+        async with async_session_factory() as session:
+            for k, v in data.items():
+                if hasattr(self, k):
+                    setattr(self, k, v)
+            session.add(self)
+            await session.flush()
+            if commit:
+                await session.commit()
+                await session.refresh(self)
+            return self
+
+    # ======================================================
+    # ❌ 删除当前实例
+    # ======================================================
+    async def delete(self: T, commit: bool = False) -> None:
+        async with async_session_factory() as session:
+            await session.delete(self)
+            if commit:
+                await session.commit()
 
 
 # ======================================================
@@ -138,10 +193,11 @@ class AbstractPermission(InfoCrud):
 
     def __eq__(self, other: object) -> bool:
         return (
-            isinstance(other, AbstractPermission)
-            and self.name == other.name
-            and self.module == other.module
+                isinstance(other, AbstractPermission)
+                and self.name == other.name
+                and self.module == other.module
         )
+
 
 def normalize_keys(d: dict) -> dict:
     """递归地将所有 dict key 转为小写"""
@@ -149,12 +205,14 @@ def normalize_keys(d: dict) -> dict:
         return d
     return {k.lower(): normalize_keys(v) for k, v in d.items()}
 
+
 def default_extra() -> dict:
     """返回标准化的 extra 默认结构"""
     from app.config.settings_manager import get_current_settings
     settings = get_current_settings()
     extra_default = getattr(settings.extra, "default", {})
     return normalize_keys(extra_default)
+
 
 # ======================================================
 # 👤 用户接口
@@ -168,7 +226,7 @@ class AbstractUser(InfoCrud):
     avatar = Column(String(500), comment="头像URL")
     email = Column(String(100), comment="邮箱")
     from sqlalchemy.dialects.postgresql import JSONB
-    extra = Column(MutableDict.as_mutable(JSONB), default=lambda :default_extra(), comment="扩展字段")
+    extra = Column(MutableDict.as_mutable(JSONB), default=lambda: default_extra(), comment="扩展字段")
 
     async def verify(self, raw: str) -> bool:
         pass
