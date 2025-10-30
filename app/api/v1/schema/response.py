@@ -85,13 +85,13 @@ class SuccessResponse(PedroResponse[str]):
     request: Optional[str] = None
 
 
-class LoginSuccessResponse(PedroResponse[T]):
+class LoginSuccessResponse(BaseModel):
     access_token: str = ""
     refresh_token: str = ""
     code: int = 2002
 
 
-class HotCryptoResponse(PedroResponse[T]):
+class HotCryptoResponse(PedroResponse[list[dict]]):
     access_token: str = ""
     refresh_token: str = ""
     data: Optional[list[dict]] = {}
@@ -108,3 +108,8 @@ class GoogleLoginSuccessResponse(PedroResponse[GoogleUserInfo]):
     refresh_token: str = ""
     user: Optional[GoogleUserInfo] = None
     code: int = 2002
+
+class DepositCreateResponse(BaseModel):
+    code: int = 2002
+    msg: str = "提交充值成功"
+    order_number: str

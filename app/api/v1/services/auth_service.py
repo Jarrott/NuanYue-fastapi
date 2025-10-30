@@ -24,7 +24,7 @@ class AuthService:
         if not id_token:
             raise HTTPException(status_code=400, detail="缺少 id_token")
         try:
-            dec = firebase_auth.verify_id_token(id_token)
+            dec = firebase_auth.verify_id_token(id_token,clock_skew_seconds=60)
             return {
                 "uid": dec.get("uid"),
                 "email": dec.get("email"),

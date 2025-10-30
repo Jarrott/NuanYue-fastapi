@@ -1,6 +1,8 @@
 import importlib
 import pkgutil
 import time
+import traceback
+
 from fastapi import APIRouter
 
 def create_v1() -> APIRouter:
@@ -33,6 +35,9 @@ def create_v1() -> APIRouter:
                 print(f"⚠️ 模块 {module_name:<12} 未定义 rp 对象，已跳过。")
         except Exception as e:
             print(f"❌ 模块 {module_name:<12} 加载失败: {e}")
+            print("------ 详细错误信息 Traceback ------")
+            traceback.print_exc()
+            print("------------------------------------\n")
 
     elapsed = (time.time() - start_time) * 1000
     print(f"\n🌿 所有子模块注册完成！耗时 {elapsed:.2f} ms\n")

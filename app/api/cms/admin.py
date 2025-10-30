@@ -9,6 +9,9 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 """
 
 from fastapi import APIRouter, Depends
+
+from app.api.cms.schema.admin import AdminDepositSchema
+from app.api.cms.services.deposit_approve_service import DepositApproveService
 from app.api.v1.schema.response import SuccessResponse
 from app.extension.websocket.wss import websocket_manager
 
@@ -25,9 +28,23 @@ async def broadcast_system_announcement():
     await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
     return SuccessResponse(msg="信息已成功推送")
 
+
 @rp.post("/force_logout/{uid}")
 async def force_logout(uid: int):
     logout = await jwt_service.bump_version(uid)
     if not logout:
         return SuccessResponse(msg="没有成功")
     return SuccessResponse(msg="已强制踢出")
+
+
+@rp.post("/approve/deposit", response_model=SuccessResponse)
+async def admin_deposit(payload: AdminDepositSchema, admin=Depends(admin_required)):
+    await DepositApproveService.admin_deposit(
+        user_id=payload.user_id,
+        amount=payload.amount,
+        remark="订单审核通过",
+        admin_user=admin,
+        order_no=payload.order_no
+    )
+
+    return SuccessResponse(msg="管理员充值成功")

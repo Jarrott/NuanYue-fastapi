@@ -10,12 +10,12 @@ from sqlalchemy import select
 from app.api.v1.schema.response import HotCryptoResponse
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.api.v1.schema.spider import CryptoAssetSchema
-from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
+from app.api.v1.services.crypto_assets_service import CryptoCollectorService
 from app.pedro.db import get_session
 from app.pedro.exception import NotFound, Success
 # from app.api.v1.schema.product import ShopProductListSchema
 # from app.api.v1.schema.paging import PagingSchema
-from app.api.v1.validator.shop_product_service import ProductCollectorService
+from app.api.v1.services.shop_product_service import ProductCollectorService
 
 # from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
 

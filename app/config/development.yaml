@@ -130,7 +130,7 @@ extra:
       invite_code: null      # 邀请码
     sensitive:
       login_ip: null
-      login_device: null
+      login_devices: null
 
 tencent:
   tmt:
@@ -142,3 +142,4 @@ google:
     client_id: ${GOOGLE_CLIENT_ID}
     service_account_path: ${GOOGLE_SERVICE_ACCOUNT_PATH}
     project_id: ${GOOGLE_PROJECT_ID}
+    database_url: ${GOOGLE_DATABASE_URL}

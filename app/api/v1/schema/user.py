@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import List, Optional, Any, Dict, Self
 from pydantic import Field, validator, EmailStr, field_serializer
-
+from user_agents import parse as ua_parse
 from app.api.cms.schema import GroupIdListSchema, EmailSchema
 from app.pedro.exception import BaseModel, ParameterError
 
@@ -28,26 +28,29 @@ class BaseSchema(BaseModel):
     # 自动识别 ORM / dict 的智能加载方法
     # --------------------------------------------------
     @classmethod
-    def smart_load(cls, data: Any) -> Self | None:
-        """
-        自动识别 ORM / dict 并返回 Schema 实例。
-        """
+    def smart_load(cls, data: Any):
         if data is None:
             return None
 
-        # ✅ ORM 对象 (SQLAlchemy / Peewee 等)
+        # ✅ ORM 对象
         if hasattr(data, "__dict__") or hasattr(data, "__table__"):
-            return cls.model_validate(data)  # v2 推荐替代 from_orm
 
-        # ✅ dict 对象
-        elif isinstance(data, dict):
+            # ✅ 检查 cls 是否自定义了 from_orm
+            custom_from_orm = cls.__dict__.get("from_orm")
+            base_from_orm = BaseModel.__dict__.get("from_orm")
+
+            # ✅ 只有子类重写了 from_orm 才调用
+            if custom_from_orm and custom_from_orm is not base_from_orm:
+                return cls.from_orm(data)
+
+            # ✅ 正常 v2 方式
+            return cls.model_validate(data)
+
+        # ✅ dict
+        if isinstance(data, dict):
             return cls(**data)
 
-        # 🚫 其他类型
-        else:
-            raise TypeError(
-                f"Unsupported type for {cls.__name__}.smart_load(): {type(data)}"
-            )
+        raise TypeError(f"Unsupported type for {cls.__name__}: {type(data)}")
 
     # --------------------------------------------------
     # 可选：格式化时间字段输出
@@ -129,6 +132,7 @@ class UserInformationSchema(BaseSchema):
     lang: Optional[str] = None
     theme: Optional[str] = None
     invite_code: Optional[str] = None
+    device_info: Optional[list[dict]] = None
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -141,7 +145,11 @@ class UserInformationSchema(BaseSchema):
 
         # ✅ 提取安全的 extra 信息
         extra = user.extra or {}
-        referral = extra.get("referral", {})
+        referral = extra.get("referral") or {}
+        setting = extra.get("settings") or {}
+        sensitive = extra.get("sensitive") or {}
+
+
 
         return cls(
             id=user.id,
@@ -152,7 +160,30 @@ class UserInformationSchema(BaseSchema):
             create_time=user.create_time,
             vip_status=extra.get("vip_status"),
             vip_expire_at=extra.get("vip_expire_at"),
-            lang=extra.get("lang"),
-            theme=extra.get("theme"),
-            invite_code=referral.get("invite_code")
+            lang=setting.get("lang"),
+            theme=setting.get("theme"),
+            invite_code=referral.get("invite_code"),
+            device_info=sensitive.get("login_devices")
+        )
+
+
+class OTCDepositSchema(BaseModel):
+    amount: float
+    token: str = "USDT"
+    proof_image: str  # 图片URL
+
+class UserAgentSchema(BaseModel):
+    device: str
+    browser: str
+    os: str
+    raw: str
+
+    @classmethod
+    def from_ua(cls, ua_string: str):
+        ua = ua_parse(ua_string)
+        return cls(
+            device=ua.device.family or "Unknown",
+            browser=ua.browser.family or "Unknown",
+            os=ua.os.family or "Unknown",
+            raw=ua_string
         )
