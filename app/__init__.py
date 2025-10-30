@@ -72,6 +72,10 @@ def register_logger(app: FastAPI):
     setup_logger(app)
     logger.info("✅ 日志系统初始化完成")
 
+def init_firebase():
+    from app.extension.google_tools.firebase_admin_service import init_firebase_admin
+    init_firebase_admin()
+
 
 def register_pedro_core():
     """Pedro-Core 初始化（数据库 + 权限模型 + Manager）"""
@@ -163,10 +167,11 @@ def create_app() -> FastAPI:
     )
 
     # 注册模块和中间件
+    register_cors(app)
     register_logger(app)
     register_blueprints(app)
-    register_cors(app)
     register_exception_handlers(app)
+    init_firebase()
 
     logger.info(f"✅ Pedro-Core FastAPI 初始化完成 | 环境: {settings.app.env}")
     return app

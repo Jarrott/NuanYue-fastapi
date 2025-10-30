@@ -9,7 +9,7 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 """
 
 from fastapi import APIRouter, Depends
-from app.api.v1.handler.response import SuccessResponse, LoginSuccessResponse
+from app.api.v1.schema.response import SuccessResponse
 from app.extension.websocket.wss import websocket_manager
 
 from app.config.settings_manager import get_current_settings

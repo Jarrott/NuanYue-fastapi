@@ -5,7 +5,7 @@ Pedro-Core Manager (FastAPI版)
 
 ✅ 异步查询与权限同步
 ✅ 自动挂载到 app.state.manager
-✅ 保留 meta / plugin / model / service 管理接口
+✅ 保留 meta / plugin / model / services 管理接口
 ✅ 支持权限检查 (is_user_allowed)
 """
 

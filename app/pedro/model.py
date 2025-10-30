@@ -94,19 +94,17 @@ class User(AbstractUser, BaseModel):
         return not getattr(self, "is_deleted", False)
 
     async def is_admin(self) -> bool:
-        """异步判断是否超级管理员（含调试打印）"""
+        """异步判断是否超级管理员（安全版 + 可扩展）"""
+        from app.api.cms.model.user_group import UserGroup
+        from app.pedro.enums import GroupLevelEnum
+
         async with async_session_factory() as session:
-            # 🔍 构造 SQL
-            stmt = select(UserGroup).where(UserGroup.user_id == self.id)
-
-            # 🔍 执行查询
+            stmt = select(UserGroup.group_id).where(UserGroup.user_id == self.id)
             result = await session.execute(stmt)
-            record = result.scalar_one_or_none()
+            group_ids = [gid for gid, in result.all()]  # ✅ 一次性取出所有 group_id
 
-            if record:
-                is_admin = record.group_id == GroupLevelEnum.ROOT.value
-                return is_admin
-            return False
+            # 🚀 判断是否包含 ROOT 管理员组
+            return GroupLevelEnum.ROOT.value in group_ids
 
     # ======================================================
     # 🖼️ 头像拼接
@@ -115,11 +113,16 @@ class User(AbstractUser, BaseModel):
     def avatar(self) -> Optional[str]:
         """拼接完整头像 URL"""
         settings = get_current_settings()
-        domain = getattr(settings.app, "oss_domain", "http://127.0.0.1:8000")
-
-        if self._avatar:
+        domain = settings.app.oss_domain
+        if not self._avatar:
+            return None
+        # ✅ 判断是否是第三方 URL（以 http:// 或 https:// 开头）
+        if self._avatar.startswith("http://") or self._avatar.startswith("https://"):
+            # 是外链（例如 Google 头像）
+            return self._avatar
+        else:
             return os.path.join(domain, "static", self._avatar)
-        return None
+
 
     # ======================================================
     # 🔍 工具方法

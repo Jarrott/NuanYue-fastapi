@@ -14,7 +14,7 @@ Pedro-Core 异步 ORM 基类 (Final Unified Version)
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Optional, List, Dict, Type, TypeVar, AsyncGenerator
 from sqlalchemy import Column, Integer, Boolean, DateTime, select, func
@@ -43,8 +43,6 @@ class BaseModel(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     is_deleted = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # -----------------------------------------
     # 🧩 自动表名

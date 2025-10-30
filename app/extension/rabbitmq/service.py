@@ -1,4 +1,4 @@
-# app/extension/rabbitmq/service.py
+# app/extension/rabbitmq/services.py
 from aio_pika import ExchangeType
 from app.extension.rabbitmq.constances import (
     EXCHANGE_DELAY, QUEUE_ORDER_DELAY, ROUTING_ORDER_DELAY

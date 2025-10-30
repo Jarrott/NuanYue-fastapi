@@ -7,34 +7,32 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ JWT 登录认证
 ✅ 支持会员开通、签到、邀请关系树
 """
+from fastapi import APIRouter, Depends, HTTPException
 
-import json
-import time
-from datetime import datetime, timedelta
-from io import BytesIO
-from typing import Optional, Dict, Any
+from sqlalchemy import select
+from firebase_admin import auth as firebase_auth
+from app.api.v1.schema.response import (
+    SuccessResponse,
+    LoginSuccessResponse,
+    GoogleLoginSuccessResponse,
+    UserInformationResponse, GoogleUserInfo)
+from app.api.v1.services.auth_service import AuthService
+from app.api.v1.services.user_service import UserService
 
-from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException, status, Body
-from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, or_
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.api.v1.handler.response import SuccessResponse, LoginSuccessResponse
 from app.extension.websocket.wss import websocket_manager
-from app.pedro import manager, UserGroup
+from app.pedro import UserGroup
 # from PIL import Image, ImageDraw, ImageFont
 
 from app.pedro.db import async_session_factory
 from app.pedro.exception import UnAuthentication
-from app.pedro.manager import Manager
 from app.pedro.pedro_jwt import jwt_service, login_required, admin_required
-from app.extension.redis.redis_client import rds
 from app.config.settings_manager import get_current_settings
 from app.api.v1.schema.user import (
     UserRegisterSchema,
     LoginSchema,
-    LoginTokenSchema,
+    UserInformationSchema,
 )
+
 from app.api.cms.model.user import User
 from app.api.cms.model.user_group import UserGroup
 from app.util.invite_services import assign_invite_code, bind_inviter_relation
@@ -48,36 +46,17 @@ settings = get_current_settings()
 # ======================================================
 @rp.post("/register", response_model=SuccessResponse)
 async def register_user(payload: UserRegisterSchema):
-    async with async_session_factory() as session:
-        # 检查用户名 / 邮箱是否重复
-        stmt = select(User).where(User.username == payload.username)
-        if (await session.execute(stmt)).scalar_one_or_none():
-            raise UnAuthentication("用户名重复")
-        user = User(username=payload.username)
-        session.add(user)
-        await session.flush()
-        await user.set_password(payload.password)
-        await session.commit()
+    # 用户名唯一性校验
+    if await UserService.get_by_username(payload.username):
+        raise HTTPException(status_code=400, detail="用户名重复")
 
-        await assign_invite_code(user)
-        if payload.inviter_code is not None:
-            await bind_inviter_relation(user, payload.inviter_code)
-
-        if len(payload.group_ids) == 0:
-            from app.pedro.enums import GroupLevelEnum
-
-            group_ids = [GroupLevelEnum.GUEST.value]
-
-        group_ids = payload.group_ids
-        for group_id in group_ids:
-            user_group = UserGroup()
-            user_group.user_id = user.id
-            user_group.group_id = group_id
-            session.add(user_group)
-            await session.commit()
-
-
-        return SuccessResponse(msg="注册成功")
+    await UserService.create_user_ar(
+        username=payload.username,
+        password=payload.password,
+        inviter_code=payload.inviter_code,
+        group_ids=payload.group_ids,
+    )
+    return SuccessResponse(msg="注册成功")
 
 
 # ======================================================
@@ -88,24 +67,48 @@ async def login(data: LoginSchema):
     """
     用户登录并获取 Token
     """
-    async with async_session_factory() as session:
-        result = await session.execute(
-            select(User).where(User.username == data.username)
+    user = await UserService.get_by_username(data.username)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    if not await user.verify_password(data.password):
+        raise HTTPException(status_code=401, detail="密码错误")
+
+    tokens = await AuthService.create_tokens(user)
+    return LoginSuccessResponse(**tokens)
+
+
+@rp.post("/google/login", response_model=GoogleLoginSuccessResponse)
+async def google_login(payload: dict):
+    g = AuthService.verify_google_token(payload.get("id_token"))
+    user = await UserService.get_by_username(g["email"])
+    if not user:
+        user = await UserService.create_user_ar(
+            username=g["email"],
+            email=g["email"],
+            name=g["name"] or g["email"].split("@")[0],
+            avatar=g["picture"],
+            inviter_code=payload.get("inviter_code"),
+            group_ids=payload.get("group_ids"),
         )
-        user = result.scalar_one_or_none()
+    tokens = await AuthService.create_tokens(user)
 
-        # 用户不存在
-        if not user:
-            raise UnAuthentication("用户不存在")
+    user_info = GoogleUserInfo(
+        uid=g["uid"],
+        email=g["email"],
+        name=g["name"],
+        avatar=g["picture"],
+    )
 
-        # 校验密码（取决于你的 User 模型）
-        if not await user.verify_password(data.password):
-            raise UnAuthentication("密码错误")
+    return GoogleLoginSuccessResponse(**tokens, user=user_info)
 
-        # ✅ 创建 JWT token
-        tokens = await jwt_service.create_pair(user)
 
-        return LoginSuccessResponse(access_token=tokens["access_token"], refresh_token=tokens["refresh_token"])
+@rp.get("/information",
+        response_model=UserInformationResponse[UserInformationSchema],
+        dependencies=[Depends(login_required)])
+def get_user_info(current_user: User = Depends(login_required)):
+    return UserInformationResponse(
+        data=UserInformationSchema.smart_load(current_user)
+    )
 
 
 @rp.get("/user", dependencies=[Depends(login_required)])
@@ -113,10 +116,13 @@ async def user_access():
     """所有登录用户可访问"""
     return {"msg": "✅ 普通用户接口访问成功"}
 
+
 @rp.get("/admin", dependencies=[Depends(admin_required)])
 async def admin_access():
     """仅管理员可访问"""
     return {"msg": "🛡️ 管理员接口访问成功"}
+
+
 #
 # # ======================================================
 # # 👤 获取当前用户信息（Redis 缓存）

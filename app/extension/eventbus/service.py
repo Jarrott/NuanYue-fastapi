@@ -1,4 +1,4 @@
-# app/extension/eventbus/service.py
+# app/extension/eventbus/services.py
 import asyncio
 import uuid
 from app.extension.eventbus.base import eventbus

@@ -8,7 +8,7 @@ Pedro-Core 接口定义层（Interface Layer）
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
@@ -50,11 +50,16 @@ class BaseCrud(BaseModel):
             *,
             one: bool = True,
             **filters: Any,
-    ) -> Union[Optional[T], List[T]]:
+    ) -> Union[Optional[T], list[T]]:
         async with async_session_factory() as session:
             stmt = select(cls).filter_by(**filters)
-            result = await session.execute(stmt.limit(1) if one else stmt)
-            return result.scalar_one_or_none() if one else list(result.scalars().all())
+            result = await session.execute(stmt)
+
+            if one:
+                # ✅ 不再使用 scalar_one_or_none()，改用 first()
+                return result.scalars().first()  # 安全，不抛异常
+            else:
+                return list(result.scalars().all())
 
     # ======================================================
     # 🔢 计数查询
@@ -137,8 +142,9 @@ class InfoCrud(BaseCrud):
     """带 create/update/delete_time 的抽象类"""
     __abstract__ = True
 
-    create_time = Column(DateTime(timezone=True), server_default=func.now())
-    update_time = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    create_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
+    update_time = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc),
+                         server_onupdate=func.now())
     delete_time = Column(DateTime(timezone=True))
     is_deleted = Column(Boolean, nullable=False, default=False)
 
@@ -221,10 +227,10 @@ class AbstractUser(InfoCrud):
     """用户基础字段定义"""
     __abstract__ = True
 
-    username = Column(String(24), nullable=False, comment="用户名")
+    username = Column(String(24), nullable=False, unique=True, index=True, comment="用户名")
     nickname = Column(String(24), comment="昵称")
-    avatar = Column(String(500), comment="头像URL")
-    email = Column(String(100), comment="邮箱")
+    _avatar = Column(String(500), comment="头像URL")
+    email = Column(String(100), unique=True, index=True, comment="邮箱")
     from sqlalchemy.dialects.postgresql import JSONB
     extra = Column(MutableDict.as_mutable(JSONB), default=lambda: default_extra(), comment="扩展字段")
 

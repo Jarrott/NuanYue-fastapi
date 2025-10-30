@@ -53,6 +53,7 @@ class AppConfig(BaseModel):
     timezone: str = "Asia/Tokyo"
     host: str = "127.0.0.1"
     port: int = 8080
+    oss_domain: str = None
 
 
 class DatabaseConfig(BaseModel):
@@ -90,6 +91,23 @@ class TencentTMTConfig(BaseModel):
 
 class TencentConfig(BaseModel):
     tmt: TencentTMTConfig = TencentTMTConfig()
+
+class FirebaseConfig(BaseModel):
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    api_key: Optional[str] = None
+    project_id: Optional[str] = None
+    auth_domain: Optional[str] = None
+    database_url: Optional[str] = None
+    storage_bucket: Optional[str] = None
+    messaging_sender_id: Optional[str] = None
+    app_id: Optional[str] = None
+    measurement_id: Optional[str] = None
+    service_account_path: Optional[str] = None
+
+
+class GoogleConfig(BaseModel):
+    firebase: FirebaseConfig = FirebaseConfig()
 
 
 class RabbitMQConfig(BaseModel):
@@ -161,6 +179,7 @@ class Settings(BaseSettings):
     extra: ExtraConfig = ExtraConfig()
     auth: AuthConfig = AuthConfig()
     tencent: TencentConfig = TencentConfig()
+    google: GoogleConfig = GoogleConfig()
 
     model_config = SettingsConfigDict(env_file_encoding="utf-8", extra="allow")
 

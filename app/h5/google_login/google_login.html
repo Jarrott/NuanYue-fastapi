@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>Google 登录测试</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.1/firebase-auth-compat.js"></script>
+  <style>
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      background: #f7f8fa;
+      text-align: center;
+      margin: 0;
+      padding: 50px;
+    }
+    h1 {
+      color: #333;
+    }
+    button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #357ae8;
+    }
+    .msg {
+      margin-top: 20px;
+      color: #d93025;
+    }
+    .card {
+      margin-top: 40px;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: inline-block;
+      text-align: left;
+      min-width: 260px;
+    }
+    .avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      margin-bottom: 10px;
+    }
+    .loader {
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #4285F4;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      display: none;
+      margin: 30px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Google 登录测试</h1>
+  <button id="loginBtn">使用 Google 登录</button>
+  <div id="loader" class="loader"></div>
+  <div id="msg" class="msg"></div>
+  <div id="userCard" class="card" style="display:none;"></div>
+
+  <script>
+    // ✅ 替换为你自己的 Firebase Web 配置
+    const firebaseConfig = {
+      apiKey: "AIzaSyDFdByzZ3hR-pkh6TR1nCJ04tVko41Z_E8",
+      authDomain: "ttte-a5dae.firebaseapp.com",
+      projectId: "ttte-a5dae",
+      storageBucket: "ttte-a5dae.appspot.com",
+      messagingSenderId: "379230954149",
+      appId: "1:379230954149:web:19a9f93f1b881d170ba34c"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    const loginBtn = document.getElementById("loginBtn");
+    const msg = document.getElementById("msg");
+    const loader = document.getElementById("loader");
+    const userCard = document.getElementById("userCard");
+
+    // ==========================
+    // 🧩 Google 登录逻辑
+    // ==========================
+    loginBtn.onclick = async () => {
+      msg.textContent = "";
+      userCard.style.display = "none";
+      loader.style.display = "block";
+
+      try {
+        const result = await auth.signInWithPopup(provider);
+        const idToken = await result.user.getIdToken();
+
+        // 调用 FastAPI 后端登录
+        const res = await fetch("http://127.0.0.1:5001/v1/user/google/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_token: idToken }),
+        });
+
+        const data = await res.json();
+        loader.style.display = "none";
+
+        if (res.ok && data.access_token) {
+          msg.style.color = "green";
+          msg.textContent = "✅ 登录成功！正在获取个人资料...";
+
+          // 保存 token
+          localStorage.setItem("access_token", data.access_token);
+
+          // 延迟 1 秒后自动获取用户信息
+          setTimeout(() => getUserInformation(data.access_token), 1000);
+        } else {
+          msg.style.color = "red";
+          msg.textContent = "❌ 登录失败：" + (data.detail || "未知错误");
+        }
+
+      } catch (err) {
+        loader.style.display = "none";
+        msg.style.color = "red";
+        msg.textContent = "登录失败: " + err.message;
+        console.error(err);
+      }
+    };
+
+    // ==========================
+    // 🧠 获取 /v1/user/information
+    // ==========================
+    async function getUserInformation(token) {
+      loader.style.display = "block";
+      try {
+        const res = await fetch("http://127.0.0.1:5001/v1/user/information", {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        });
+        const info = await res.json();
+        loader.style.display = "none";
+
+        if (res.ok) {
+          msg.style.color = "green";
+          msg.textContent = "✅ 获取用户信息成功！";
+
+          userCard.innerHTML = `
+            <img class="avatar" src="${info.data.avatar}" alt="avatar" onerror="this.src='/static/default_avatar.png';"/>
+            <p><strong>昵称：</strong> ${info.data.nickname || "未设置"}</p>
+            <p><strong>Email：</strong> ${info.data.email}</p>
+            <p><strong>UID：</strong> ${info.data.id}</p>
+            <p><strong>注册时间：</strong> ${info.data.create_time}</p>
+          `;
+          userCard.style.display = "block";
+        } else {
+          msg.style.color = "red";
+          msg.textContent = "❌ 无法获取用户信息：" + (info.detail || "未知错误");
+        }
+
+      } catch (err) {
+        loader.style.display = "none";
+        msg.style.color = "red";
+        msg.textContent = "请求错误: " + err.message;
+        console.error(err);
+      }
+    }
+  </script>
+
+</body>
+</html>

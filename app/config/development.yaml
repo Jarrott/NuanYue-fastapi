@@ -128,8 +128,17 @@ extra:
       l3_id: null
       ref_path: ""           # 推荐路径
       invite_code: null      # 邀请码
+    sensitive:
+      login_ip: null
+      login_device: null
 
 tencent:
   tmt:
     secret_id: ${TENCENT_SECRET_ID}
     secret_key: ${TENCENT_SECRET_KEY}
+
+google:
+  firebase:
+    client_id: ${GOOGLE_CLIENT_ID}
+    service_account_path: ${GOOGLE_SERVICE_ACCOUNT_PATH}
+    project_id: ${GOOGLE_PROJECT_ID}

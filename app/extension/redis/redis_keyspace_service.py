@@ -10,7 +10,7 @@ class RedisKeyspaceService(BaseService):
 
     async def init(self):
         # 依赖 RedisService
-        self.redis_svc = ServiceManager.get("redis")  # 确保 redis service 先加载
+        self.redis_svc = ServiceManager.get("redis")  # 确保 redis services 先加载
         self.redis = self.redis_svc.redis
 
         s = get_current_settings()

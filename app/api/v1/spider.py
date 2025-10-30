@@ -4,12 +4,10 @@
 # @File    : spider.py
 # @Software: PyCharm
 """
-import math
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from fastapi import APIRouter, Query
+from sqlalchemy import select
 
-from app.api.v1.handler.response import HotCryptoResponse
+from app.api.v1.schema.response import HotCryptoResponse
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.api.v1.schema.spider import CryptoAssetSchema
 from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
@@ -17,7 +15,6 @@ from app.pedro.db import get_session
 from app.pedro.exception import NotFound, Success
 # from app.api.v1.schema.product import ShopProductListSchema
 # from app.api.v1.schema.paging import PagingSchema
-from app.api.v1.model.shop_product import ShopProduct
 from app.api.v1.validator.shop_product_service import ProductCollectorService
 
 # from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
