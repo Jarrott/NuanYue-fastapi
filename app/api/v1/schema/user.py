@@ -76,6 +76,7 @@ class LoginSchema(BaseModel):
     username: str = Field(description="用户名")
     password: str = Field(description="密码")
     captcha: Optional[str] = Field(description="验证码", default=None)
+    remember_me: str = Field(description="是否信任此设备", default="false")
 
 
 class LoginTokenSchema(BaseModel):

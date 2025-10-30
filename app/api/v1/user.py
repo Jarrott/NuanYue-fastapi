@@ -11,6 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from sqlalchemy import select
 from firebase_admin import auth as firebase_auth
+
+from app.pedro.pedro_jwt import jwt_service
+
 from app.api.v1.schema.response import (
     SuccessResponse,
     LoginSuccessResponse,
@@ -75,7 +78,8 @@ async def login(data: LoginSchema, request: Request):
     if not await user.verify_password(data.password):
         raise HTTPException(status_code=401, detail="密码错误")
 
-    tokens = await AuthService.create_tokens(user)
+    tokens = await jwt_service.after_login_security(user, request, data)
+
 
     # 记录登录设备信息
     ua_string = request.headers.get("User-Agent", "")
