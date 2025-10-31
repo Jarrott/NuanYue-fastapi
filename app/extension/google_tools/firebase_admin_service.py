@@ -5,11 +5,6 @@
 # @Software: PyCharm
 """
 import firebase_admin
-from firebase_admin import credentials, auth
-
-from app.config.settings_manager import get_current_settings
-
-import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import auth
 

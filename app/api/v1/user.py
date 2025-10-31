@@ -49,7 +49,7 @@ settings = get_current_settings()
 # ======================================================
 # 🧩 注册新用户
 # ======================================================
-@rp.post("/register", response_model=SuccessResponse)
+@rp.post("/register", name="用户注册",response_model=SuccessResponse)
 async def register_user(payload: UserRegisterSchema):
     # 用户名唯一性校验
     if await UserService.get_by_username(payload.username):
@@ -67,7 +67,7 @@ async def register_user(payload: UserRegisterSchema):
 # ======================================================
 # 🔐 登录并生成 Token
 # ======================================================
-@rp.post("/login", response_model=LoginSuccessResponse)
+@rp.post("/login",name="用户名登录", response_model=LoginSuccessResponse)
 async def login(data: LoginSchema, request: Request):
     """
     用户登录并获取 Token
@@ -90,7 +90,7 @@ async def login(data: LoginSchema, request: Request):
     return LoginSuccessResponse(**tokens)
 
 
-@rp.post("/google/login", response_model=GoogleLoginSuccessResponse)
+@rp.post("/google/login", name="谷歌登陆",response_model=GoogleLoginSuccessResponse)
 async def google_login(payload: dict, request: Request):
     g = AuthService.verify_google_token(payload.get("id_token"))
     user = await UserService.get_by_username(g["email"])
@@ -121,7 +121,7 @@ async def google_login(payload: dict, request: Request):
     return GoogleLoginSuccessResponse(**tokens, user=user_info)
 
 
-@rp.get("/information",
+@rp.get("/information",name="个人详情",
         response_model=UserInformationResponse[UserInformationSchema],
         dependencies=[Depends(login_required)])
 def get_user_info(current_user: User = Depends(login_required)):
@@ -130,25 +130,25 @@ def get_user_info(current_user: User = Depends(login_required)):
     )
 
 
-@rp.get("/user", dependencies=[Depends(login_required)])
-async def user_access():
-    """所有登录用户可访问"""
-    return {"msg": "✅ 普通用户接口访问成功"}
+# @rp.get("/user", dependencies=[Depends(login_required)])
+# async def user_access():
+#     """所有登录用户可访问"""
+#     return {"msg": "✅ 普通用户接口访问成功"}
+#
+#
+# @rp.get("/admin", dependencies=[Depends(admin_required)])
+# async def admin_access():
+#     """仅管理员可访问"""
+#     return {"msg": "🛡️ 管理员接口访问成功"}
 
 
-@rp.get("/admin", dependencies=[Depends(admin_required)])
-async def admin_access():
-    """仅管理员可访问"""
-    return {"msg": "🛡️ 管理员接口访问成功"}
-
-
-@rp.get("/push/message")
+@rp.get("/push/message",name="推送信息给客服")
 async def broadcast_system_announcement():
     await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
     print(f"📣 已全局广播系统消息: ")
 
 
-@rp.post("/deposit/otc", response_model=DepositCreateResponse)
+@rp.post("/deposit/otc",name="充值方式", response_model=DepositCreateResponse)
 async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_required)):
     key, deposit = await DepositService.submit_manual_order(
         user_id=current_user.id,
@@ -158,3 +158,23 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
     )
 
     return DepositCreateResponse(order_number=deposit.order_no)
+
+@rp.get("/order/detail/{order_no}",name="查看订单详情")
+async def order_detail():
+    pass
+
+@rp.get("/shops/detail",name="查看商品详情")
+async def product_detail():
+    pass
+
+@rp.get("/ads",name="轮播图")
+def ads():
+    pass
+
+@rp.get("/shops",name="商品列表")
+def ads():
+    pass
+
+@rp.get("/kyc",name="用户认证")
+def ads():
+    pass

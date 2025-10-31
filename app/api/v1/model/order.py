@@ -15,5 +15,5 @@ class Order(InfoCrud):
     user_id = Column(Integer, nullable=False)
     product_id = Column(Integer, nullable=False)
     amount = Column(Float, nullable=False)
+    quantity = Column(Integer, nullable=False)
     status = Column(String(32), default="pending")
-    created_at = Column(DateTime, server_default=func.now())

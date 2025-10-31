@@ -45,8 +45,8 @@ class ShopProduct(InfoCrud):
     shipping_info = Column(String(200))
     warranty_info = Column(String(200))
     source = Column(String(50), default="dummyjson")
+    quantity_available = Column(Integer, default=100)
     lang = Column(String(10), default="en")
-    updated_at = Column(DateTime, default=datetime.utcnow)
 
     # ======================================================
     # 🔁 异步 Upsert 操作

@@ -23,7 +23,7 @@ class FirebaseRTDB:
     def path(self, *args) -> str:
         parts = [self.base] + list(args)
         return "/".join(
-            p.strip("/") for p in parts if p is not None and p != ""
+            str(p).strip("/") for p in parts if p is not None and p != ""
         )
 
     # ---------- CRUD ----------
@@ -67,5 +67,3 @@ class FirebaseRTDB:
         thread.start()
 
 rtdb = FirebaseRTDB()
-
-

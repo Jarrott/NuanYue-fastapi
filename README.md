@@ -34,3 +34,67 @@
 poetry install # 安装依赖
 
 ```
+
+## 插件使用
+- ServiceManger
+`是用此方法来注册RabbitMQ，Redis.....等三方`
+```python
+# /app/pedro/service_manager.py
+```
+
+
+- RabbitMQ
+```python
+# 监听MQ任务，功能实现
+# app/extensions/rabbitmq/task
+# app/extensions/rabbitmq/task/__init__.py 写注册
+
+TASK_HANDLERS = {
+    "order_expire": handle_order_timeout,
+    "vip_expire": handle_vip_expire,
+    "cart_expire": handle_cart_expire,
+    # 待加入新的任务
+}
+
+# 示例代码(订单下单举例)
+    await rds.set(f"order:{order.id}:status", "pending", ex=timedelta(seconds=10))
+
+    # 10s 秒  / m 分 /h 时
+    await rabbit.publish_delay(
+        message={
+            "task_type": "cart_expire",  # 👈 指定任务类型
+            "order_id": order.id,
+            "user_id": user_id,
+            "product_id": product_id},
+        delay_ms="10s"
+    )
+
+```
+
+- Realtime Database
+
+```python
+# 写入信息到RTDB
+await rtdb_msg.send_message(admin_id, f"用户 {uid} 下单金额 {amount} 元", extra={"order_id": order_id})
+
+# 读取未读列表
+msgs = await rtdb_msg.get_unread(admin_id)
+
+# 全部已读
+await rtdb_msg.mark_all_read(admin_id)
+
+```
+- Redis
+
+```python
+ # redis_keyspace_service.py 主要实现了监听Redis的过期事件
+# redis_client 封装的redis链接
+
+# tasks 下是实现业务的，比如监听的key到期后执行什么
+
+TTL_HANDLERS = {
+    # 这里根据过期的key来匹配要使用的handler
+    "order:": handle_order_expired,
+}
+
+```

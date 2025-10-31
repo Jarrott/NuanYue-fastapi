@@ -4,6 +4,7 @@ from app.extension.rabbitmq.constances import (
     EXCHANGE_DELAY, QUEUE_ORDER_DELAY, ROUTING_ORDER_DELAY
 )
 from app.extension.rabbitmq.rabbit import rabbit
+from app.extension.rabbitmq.tasks import dispatch_task
 from app.pedro.service_manager import BaseService
 
 
@@ -42,14 +43,11 @@ class RabbitService(BaseService):
         print(f"✅ RabbitService: 已声明并绑定 {QUEUE_ORDER_DELAY} → {EXCHANGE_DELAY}")
 
         # 3️⃣ 启动消费者
-        from app.extension.rabbitmq.consumer_order import handle_order_expire
-
         async def callback(msg):
             async with msg.process():
                 import json
                 data = json.loads(msg.body.decode())
-                await handle_order_expire(data)
-
+                await dispatch_task(data)
         await queue.consume(callback)
         print(f"✅ RabbitService: 已开始消费 {QUEUE_ORDER_DELAY}")
 
