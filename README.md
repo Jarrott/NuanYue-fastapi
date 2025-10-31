@@ -98,3 +98,9 @@ TTL_HANDLERS = {
 }
 
 ```
+
+## 使用cloudflared tunnel代理本地进行远程api测试
+```python
+# cloudflared tunnel create nuanyue
+# .....细节可以chatgpt 
+```

@@ -4,6 +4,12 @@
 # @File    : spider.py
 # @Software: PyCharm
 """
+import asyncio
+import os
+from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
@@ -11,6 +17,7 @@ from app.api.v1.schema.response import HotCryptoResponse
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.api.v1.schema.spider import CryptoAssetSchema
 from app.api.v1.services.crypto_assets_service import CryptoCollectorService
+from app.pedro.config import get_current_settings
 from app.pedro.db import get_session
 from app.pedro.exception import NotFound, Success
 # from app.api.v1.schema.product import ShopProductListSchema
@@ -19,7 +26,7 @@ from app.api.v1.services.shop_product_service import ProductCollectorService
 
 # from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
 
-rp = APIRouter(prefix="/spider", tags=["商品模块"])
+rp = APIRouter(prefix="/spider", tags=["商品模块"],include_in_schema=False)
 
 
 # ======================================================
@@ -115,3 +122,81 @@ async def get_trending_assets(limit: int = Query(20, description="返回数量")
             .limit(limit)
         )
         return result.scalars().all()
+
+
+
+
+# banners采集
+settings = get_current_settings()
+UNSPLASH_ACCESS_KEY = settings.unsplash.access_key
+SAVE_DIR = Path(settings.storage.banners_path)
+
+keywords = {
+    "jp": ["japan banner", "tokyo marketing", "japan travel"],
+    "cn": ["china banner", "shanghai skyline", "beijing city"],
+    "us": ["usa business banner", "new york skyline"],
+    "kr": ["korea seoul banner", "seoul skyline"],
+}
+
+async def fetch_images(query: str, per_page: int = 5):
+    url = "https://api.unsplash.com/search/photos"
+    params = {
+        "query": query,
+        "client_id": UNSPLASH_ACCESS_KEY,
+        "per_page": per_page,
+        "orientation": "landscape"
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(url, params=params)
+        r.raise_for_status()
+        data = r.json()
+        return [img["urls"]["full"] for img in data.get("results", [])]
+
+
+async def download_image(url: str, country: str, filename: str):
+    country_dir = SAVE_DIR / country
+    country_dir.mkdir(parents=True, exist_ok=True)
+
+    parsed = urlparse(url)
+    ext = os.path.splitext(parsed.path)[-1] or ".jpg"
+    save_path = country_dir / f"{filename}{ext}"
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        try:
+            r = await client.get(url)
+            r.raise_for_status()
+            save_path.write_bytes(r.content)
+            print(f"✅ Saved: {save_path}")
+            return str(save_path)
+        except Exception as e:
+            print(f"❌ Failed {url}: {e}")
+            return None
+
+
+async def crawl_banners(limit: int = 3):
+    result = {}
+
+    tasks = []
+    for country, kws in keywords.items():
+        result[country] = []
+        for kw in kws:
+            urls = await fetch_images(kw, per_page=limit)
+
+            for i, url in enumerate(urls):
+                filename = f"{kw.replace(' ', '_')}_{i}"
+                tasks.append(
+                    download_image(url, country, filename)
+                )
+
+    finished = await asyncio.gather(*tasks)
+    return {"status": "success", "saved": [f for f in finished if f]}
+
+
+@rp.get("/banners")
+async def api_download_banners(limit: int = Query(3, ge=1, le=10)):
+    """
+    下载不同国家 Banner 图到本地目录
+    """
+    res = await crawl_banners(limit)
+    return res

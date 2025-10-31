@@ -157,8 +157,16 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """构建 FastAPI 实例并注册所有依赖"""
     settings = get_current_settings()
+    # ✅ 根据环境动态关闭 Swagger
+    docs_url = "/docs" if settings.app.debug else None
+    redoc_url = "/redoc" if settings.app.debug else None
+    openapi_url = "/openapi.json" if settings.app.debug else None
 
     app = FastAPI(
+        # 生产环境不暴露API
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
         title=settings.app.name,
         version=settings.app.version,
         description="Pedro CMS built on FastAPI",

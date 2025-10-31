@@ -113,3 +113,9 @@ class DepositCreateResponse(BaseModel):
     code: int = 2002
     msg: str = "提交充值成功"
     order_number: str
+
+class OneCreateResponse(BaseModel):
+    # 图片上传
+    code: int = 2002
+    msg: str = "上传成功"
+    url: str

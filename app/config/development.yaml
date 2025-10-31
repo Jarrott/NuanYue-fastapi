@@ -11,7 +11,7 @@ app:
   timezone: Asia/Tokyo
   host: 127.0.0.1
   port: 5001
-  oss_domain: "https://oss.qi-yue.vip/"
+  oss_domain: "https://up.qi-yue.vip/"
 
 # ===============================
 # 数据库配置
@@ -72,6 +72,7 @@ storage:
   max_size_mb: 10
   include_ext: ["jpg", "png", "jpeg"]
   exclude_ext: ["exe", "bat"]
+  banners_path: ${BANNERS_PATH}
 
 # ===============================
 # 插件模块配置（可扩展）
@@ -80,6 +81,13 @@ plugins:
   enable_example_plugin: true
   path: ./app/plugins
   allowed: ["book", "wallet", "user"]
+
+# ===============================
+# 一些第三方KEY参数
+# ===============================
+unsplash:
+  access_key: ${UNSPLASH_ACCESS_KEY}
+  secret_key: ${UNSPLASH_SECRET_KEY}
 
 # ===============================
 # 通知系统配置（WebSocket / Email / Slack）
@@ -143,3 +151,10 @@ google:
     service_account_path: ${GOOGLE_SERVICE_ACCOUNT_PATH}
     project_id: ${GOOGLE_PROJECT_ID}
     database_url: ${GOOGLE_DATABASE_URL}
+
+qiniu:
+  provider: qiniu
+  bucket: "uupp"
+  access_key: "pXGaTVOeM-psbf_nw0hftAvqnMkOCdjFEJVUlKDq"
+  secret_key: "_giPlnkbEuxLDDqUgRquXsqJC8qsk7twx4e1Ptdq"
+  cdn: "https://up.qi-yue.vip"

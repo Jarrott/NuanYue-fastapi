@@ -7,11 +7,12 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ JWT 登录认证
 ✅ 支持会员开通、签到、邀请关系树
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 
 from sqlalchemy import select
 from firebase_admin import auth as firebase_auth
 
+from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
 from app.pedro.pedro_jwt import jwt_service
 
 from app.api.v1.schema.response import (
@@ -129,6 +130,20 @@ def get_user_info(current_user: User = Depends(login_required)):
         data=UserInformationSchema.smart_load(current_user)
     )
 
+@rp.get("/diagnose",name="检测用户是否开启VPN")
+async def diagnose(request: Request, tz: str = Query(None)):
+    ip = get_client_ip(request)
+    intel = geo_lookup(ip)
+    intel = calc_vpn_score(intel, request.headers.get("Accept-Language"), tz)
+    return {
+        "ip": ip,
+        "country": intel.get("country"),
+        "asn": intel.get("asn"),
+        "org": intel.get("org"),
+        "is_idc": intel["is_idc"],
+        "vpn_score": intel["vpn_score"],  # >60 基本可视为 VPN/代理
+        "reason": intel["reason"],
+    }
 
 # @rp.get("/user", dependencies=[Depends(login_required)])
 # async def user_access():
