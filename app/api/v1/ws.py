@@ -8,7 +8,7 @@ from app.extension.websocket.utils.ws_entry import ws_entry
 rp = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 
-@rp.websocket("/")
+@rp.websocket("/user")
 async def ws_init(ws: WebSocket):
     # 自动鉴权 / connect / 订阅所有频道 / 心跳 / 踢超时 / 续期提醒 全都内置
     await ws_entry(ws, market_handler, auto_subscribe_all=True)

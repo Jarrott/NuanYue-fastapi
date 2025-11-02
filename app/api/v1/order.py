@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app.extension.google_tools.rtdb_message import rtdb_msg
 from app.extension.rabbitmq.constances import QUEUE_ORDER_DELAY
+from app.extension.websocket.tasks.ws_user_notify import notify_user
 from app.pedro import async_session_factory
 from app.api.v1.model.order import Order
 from app.extension.rabbitmq.rabbit import rabbit as rabbitmq_service, rabbit
@@ -32,6 +33,13 @@ async def create_order():
             "product_id": product_id},
         delay_ms="20s"
     )
+    # 通知用户
+    await notify_user(order.user_id, {
+        "event": "order_created",
+        "order_id": order.id,
+        "price": amount,
+        "msg": "订单创建成功 ✅"
+    })
 
     # 通知后台，有新的订单更新
     await rtdb_msg.send_message(user_id, "您的订单已发货 ✅")

@@ -10,10 +10,11 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 
 from fastapi import APIRouter, Depends
 
-from app.api.cms.schema.admin import AdminDepositSchema
+from app.api.cms.schema.admin import AdminDepositSchema, AdminBroadcastSchema
 from app.api.cms.services.deposit_approve_service import DepositApproveService
 from app.api.v1.schema.response import SuccessResponse
 from app.extension.redis.redis_client import rds
+from app.extension.websocket.tasks.ws_user_notify import notify_user, notify_broadcast
 from app.extension.websocket.wss import websocket_manager
 
 from app.config.settings_manager import get_current_settings
@@ -23,11 +24,26 @@ rp = APIRouter(prefix="/admin", tags=["用户"])
 settings = get_current_settings()
 
 
-@rp.get("/push/message", response_model=SuccessResponse,
-        dependencies=[Depends(admin_required)])
-async def broadcast_system_announcement():
-    await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
-    return SuccessResponse(msg="信息已成功推送")
+@rp.post("/push/message", response_model=SuccessResponse,
+         dependencies=[Depends(admin_required)])
+async def broadcast_system_announcement(msg: AdminBroadcastSchema):
+    # 全局广播参数
+    await notify_broadcast(
+        {"msg": f"{msg}"}
+    )
+    return SuccessResponse.success(msg="信息已成功推送")
+
+
+@rp.post("/push/message/{uid}", response_model=SuccessResponse,
+         dependencies=[Depends(admin_required)])
+async def broadcast_user_message(uid: int):
+    await notify_user(uid, {
+        "event": "order_created",
+        "order_id": 9876,
+        "msg": "订单创建成功 ✅"
+    })
+
+    return SuccessResponse.success(msg="信息已成功推送")
 
 
 @rp.post("/force_logout/{uid}")
@@ -48,12 +64,20 @@ async def admin_deposit(payload: AdminDepositSchema, admin=Depends(admin_require
         order_no=payload.order_no
     )
 
+    await notify_user(payload.user_id, {
+        "event": "wallet_recharge_success",
+        "amount": payload.amount,
+        "msg": f"充值成功：${payload.amount}"
+    })
+
     return SuccessResponse(msg="管理员充值成功")
+
 
 @rp.get("/ws/online/count")
 async def get_ws_online_count() -> int:
     r = await rds.instance()
     return await r.scard("ws:online:uids")
+
 
 @rp.get("/ws/online/detail/{uid}")
 async def get_ws_online_detail(uid: int) -> dict:

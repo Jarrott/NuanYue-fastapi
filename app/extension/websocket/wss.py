@@ -31,7 +31,14 @@ class WebSocketManager:
         print(f"✅ Client[{uid}] connected. 当前连接数: {len(self.clients)}")
 
     async def subscribe(self, ws: WebSocket, channel: str):
-        self.channels.setdefault(channel, set()).add(ws)
+        self.channels.setdefault(channel, set())
+
+        # ✅ 已订阅则不重复订阅
+        if ws in self.channels[channel]:
+            # print(f"⚠️ Client[{self.clients[ws]['uid']}] 已经订阅过 {channel}")
+            return
+
+        self.channels[channel].add(ws)
         self.clients[ws]["channels"].add(channel)
         print(f"➕ Client[{self.clients[ws]['uid']}] 订阅频道 {channel}")
 

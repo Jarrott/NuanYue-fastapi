@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<title>WS 终端调试台</title>
+<style>
+body {
+    background: #0b0e11;
+    color: #d7e0ff;
+    font-family: sans-serif;
+    padding: 20px;
+}
+input, textarea, select, button {
+    background: #13161c;
+    color: #d7e0ff;
+    border: 1px solid #2a2f3a;
+    padding: 6px;
+    border-radius: 4px;
+}
+button:hover {background:#2b3344;}
+.section-title {margin-top:18px;font-weight:bold;font-size:15px;}
+.log-box {
+    background:#13161c;
+    border:1px solid #2a2f3a;
+    padding:8px;
+    height:150px;
+    overflow-y:auto;
+    border-radius:6px;
+    font-size:13px;
+    white-space:pre-wrap;
+}
+.row {margin-bottom:8px;}
+</style>
+</head>
+<body>
+
+<h2>🔥 WebSocket 调试终端</h2>
+
+<div class="row">
+ Token:
+ <input id="token" style="width:380px;" placeholder="粘贴 JWT Token">
+</div>
+
+<div class="row">
+ 地址:
+ <input id="url" style="width:350px;" value="ws://localhost:5001/v1/ws">
+ <button onclick="connectWS()">连接</button>
+ <button onclick="closeWS()">断开</button>
+</div>
+
+<div class="row">
+ 订阅:
+ <select id="sub">
+    <option value="">选择频道</option>
+    <option value="btc-usdt-1m">BTC-USDT</option>
+    <option value="eth-usdt-1m">ETH-USDT</option>
+ </select>
+ <button onclick="sub()">订阅</button>
+ <button onclick="unsub()">取消</button>
+</div>
+
+<div class="row">
+ 发送:
+ <textarea id="sendBox" style="width:600px;height:60px;">{"hello":"test"}</textarea>
+ <button onclick="send()">发送</button>
+</div>
+
+<div>⏱ RTT: <span id="rtt">--</span> ms</div>
+
+<div class="section-title">📢 系统广播</div>
+<div id="sysLog" class="log-box"></div>
+
+<div class="section-title">📬 私人通知</div>
+<div id="userLog" class="log-box"></div>
+
+<div class="section-title">📊 行情 Debug（简）</div>
+<div id="tickerLog" class="log-box"></div>
+
+<script>
+let ws = null;
+let retry = 0;
+let hb = null;    // 心跳计时器
+let lastPing = null;
+
+function log(id, msg){
+    const box = document.getElementById(id);
+    const t = new Date().toLocaleTimeString();
+    box.innerText = `[${t}] ${msg}\n` + box.innerText;
+}
+
+function connectWS(){
+    const token = document.getElementById("token").value;
+    let url = document.getElementById("url").value.trim();
+    if(token) url += "?token=" + token;
+
+    ws = new WebSocket(url);
+
+    ws.onopen = ()=>{
+        retry = 0;
+        log("sysLog","✅ WebSocket 连接成功");
+
+        // ✅ 自动订阅用户私有频道
+        try{
+            const uid = JSON.parse(atob(token.split('.')[1])).uid;
+            ws.send(JSON.stringify({action:"subscribe", channel:`user:${uid}`}));
+            log("userLog",`✅ 自动订阅 user:${uid}`);
+        }catch{}
+
+        // ✅ 心跳
+        hb = setInterval(()=>{
+            lastPing = performance.now();
+            ws.send(JSON.stringify({type:"ping"}));
+        },15000);
+    };
+
+    ws.onmessage = (e)=>{
+        try{
+            const data = JSON.parse(e.data);
+
+            // ✅ RTT 计算
+            if(data.type === "pong"){
+                document.getElementById("rtt").innerText = (performance.now() - lastPing).toFixed(1);
+                return;
+            }
+
+            // ✅ 系统广播
+            if(data.broadcast){
+                log("sysLog", JSON.stringify(data));
+                return;
+            }
+
+            // ✅ 私人通知
+            if(data.type === "user"){
+                log("userLog", JSON.stringify(data));
+                return;
+            }
+
+            // ✅ 行情 (ticker)
+            if(data.type === "ticker"){
+                log("tickerLog", `${data.symbol} ${data.close}`);
+                return;
+            }
+
+        }catch(err){
+            log("sysLog","⚠ JSON 解析失败 "+e.data);
+        }
+    };
+
+    ws.onerror = ()=> log("sysLog","❌ WS 错误");
+
+    ws.onclose = ()=>{
+        clearInterval(hb);
+        log("sysLog","⚠️ 连接关闭");
+
+        // ✅ 自动重连
+        setTimeout(()=>{
+            if(retry < 5){
+                retry++;
+                connectWS();
+            }
+        }, 1500);
+    };
+}
+
+function closeWS(){
+    retry = 99;
+    ws?.close();
+    clearInterval(hb);
+    log("sysLog","手动断开");
+}
+
+function send(){
+    ws.send(document.getElementById("sendBox").value);
+}
+function sub(){
+    const ch = document.getElementById("sub").value;
+    ws.send(JSON.stringify({action:"subscribe", channel:ch}));
+    log("sysLog",`订阅 ${ch}`);
+}
+function unsub(){
+    const ch = document.getElementById("sub").value;
+    ws.send(JSON.stringify({action:"unsubscribe", channel:ch}));
+    log("sysLog",`取消订阅 ${ch}`);
+}
+</script>
+
+</body>
+</html>

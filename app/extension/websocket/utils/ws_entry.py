@@ -56,6 +56,7 @@ async def ws_entry(
     # 记录连接（你已有的 manager）
     await websocket_manager.connect(ws, uid)
     await _set_online(uid, ws_id=str(id(ws)))
+    await websocket_manager.subscribe(ws, f"user:{uid}")
     print(f"🟢 WS connected: uid={uid}")
 
     # 自动订阅全部频道（可按需实现 get_all_channels）

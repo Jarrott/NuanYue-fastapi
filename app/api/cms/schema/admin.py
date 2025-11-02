@@ -12,3 +12,6 @@ class AdminDepositSchema(BaseModel):
     amount: float = None
     remark: str = None
     order_no: str = None
+
+class AdminBroadcastSchema(BaseModel):
+    msg: str
