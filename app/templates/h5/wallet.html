@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Wallet Realtime Test</title>
+</head>
+
+<body>
+  <h2>🔥 钱包实时监听测试</h2>
+
+  <div>余额：<span id="balance">loading...</span> 元</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-app.js";
+    import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-auth.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
+
+    // ✅ Firebase配置（固定就行）
+    const firebaseConfig = {
+      apiKey: "AIzaSyDFdByzZ3hR-pkh6TR1nCJ04tVko41Z_E8",
+      authDomain: "ttte-a5dae.firebaseapp.com",
+      projectId: "ttte-a5dae",
+      storageBucket: "ttte-a5dae.appspot.com",
+      messagingSenderId: "379230954149",
+      databaseURL: "https://ttte-a5dae-default-rtdb.asia-southeast1.firebasedatabase.app",
+      appId: "1:379230954149:web:19a9f93f1b881d170ba34c"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    // ✅ 模拟从后端拿 Token（正式应 fetch 后端接口）
+    const firebaseToken = prompt("请输入后端发的 Firebase Token：");
+
+    // ✅ 登录
+    signInWithCustomToken(auth, firebaseToken).then(() => {
+      console.log("✅ Firebase 登录成功", auth.currentUser.uid);
+
+      const uid = auth.currentUser.uid;
+      const walletRef = ref(db, `user_wallet/${uid}/balance`);
+
+      // ✅ 实时监听钱包余额
+      onValue(walletRef, (snapshot) => {
+        const balance = snapshot.val();
+        console.log("📡 余额更新：", balance);
+        document.getElementById("balance").innerText = balance ?? 0;
+      });
+
+    }).catch((err) => {
+      console.error("❌ Firebase 登录失败：", err);
+      alert("Token 无效，请检查后台 issuedToken()");
+    });
+  </script>
+</body>
+</html>

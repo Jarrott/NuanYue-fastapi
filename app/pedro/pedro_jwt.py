@@ -13,6 +13,7 @@ from app.config.settings_manager import get_current_settings
 from app.pedro.exception import UnAuthentication, Forbidden
 from app.pedro.db import async_session_factory
 from app.pedro.manager import manager as User, manager
+from firebase_admin import auth
 
 
 # ======================================================
@@ -174,9 +175,56 @@ class JWTService:
             "scopes": scopes,
         }
 
-    # ======================================================
-    # 🧠 校验 Token（加 fingerprint + AntiReplay）
-    # ======================================================
+    # ------------------------------------------------------
+    # 🧩 生成新的 Token
+    # ------------------------------------------------------
+    async def verify_refresh_token(self, refresh_token: str) -> dict:
+        """刷新 Access / Refresh Token（支持 Rotation / 多设备）"""
+
+        try:
+            payload = jwt.decode(
+                refresh_token,
+                self.secret,
+                algorithms=[self.algorithm]
+            )
+        except Exception:
+            raise UnAuthentication("Refresh Token 无效")
+
+        # 1️⃣ 必须是 refresh token
+        if payload.get("type") != "refresh":
+            raise UnAuthentication("Token 类型错误")
+
+        uid = payload.get("uid")
+        version = payload.get("ver")
+
+        if not uid or not version:
+            raise UnAuthentication("Token 无效")
+
+        # 2️⃣ 检查用户
+        user = await manager.user_model.get(id=uid)
+        if not user:
+            raise UnAuthentication("用户不存在")
+
+        # 3️⃣ 检查 Redis 令牌是否还有效（防止伪造）
+        r = await rds.instance()
+        redis_key = f"token:{uid}:refresh:{refresh_token}"
+        exists = await r.get(redis_key)
+        if not exists:
+            raise UnAuthentication("Refresh Token 已失效，请重新登录")
+
+        # 4️⃣ 检查 Token 版本是否一致（后台强制下线机制）
+        redis_version = await r.get(f"user:{uid}:version")
+        if str(redis_version) != str(version):
+            raise UnAuthentication("登录状态已变更，请重新登录")
+
+        # ✅ 生成新的 access/refresh（Rotation 新策略）
+        new = await self.create_pair(user)
+
+        # 🧹 删除旧 Refresh Token（Token Rotation 安全策略）
+        await r.delete(redis_key)
+
+        return new
+
     # ======================================================
     # 🧠 校验 Token + 版本号 + 风控（不改变已有签名）
     # ======================================================
@@ -278,8 +326,8 @@ security_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
-    request: Request = None
+        credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+        request: Request = None
 ) -> User:
     if not credentials:
         raise UnAuthentication("缺少认证凭据")
@@ -296,7 +344,6 @@ async def get_current_user(
         return user
 
 
-
 async def login_required(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
@@ -307,3 +354,13 @@ async def admin_required(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+class FirebaseAuthService:
+
+    @staticmethod
+    async def create_custom_token(user_id: int):
+        # 👇 这里可以放自定义用户字段
+        additional_claims = {
+            "uid": str(user_id)
+        }
+        token = auth.create_custom_token(str(user_id), additional_claims)
+        return token.decode("utf-8")

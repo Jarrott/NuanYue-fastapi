@@ -11,6 +11,7 @@ app:
   timezone: Asia/Tokyo
   host: 127.0.0.1
   port: 5001
+  server_domain: "https://api-test.qi-yue.vip"
   oss_domain: "https://up.qi-yue.vip/"
 
 # ===============================
@@ -73,6 +74,7 @@ storage:
   include_ext: ["jpg", "png", "jpeg"]
   exclude_ext: ["exe", "bat"]
   banners_path: ${BANNERS_PATH}
+  h5_path: ${H5_PATH}
 
 # ===============================
 # 插件模块配置（可扩展）

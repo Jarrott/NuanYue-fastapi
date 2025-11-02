@@ -43,7 +43,7 @@ def check_password_hash(raw: str, hashed: str) -> bool:
 
 
 class User(AbstractUser, BaseModel):
-    __tablename__ = "user"
+    __table_args__ = {'extend_existing': True}
 
     # ======================================================
     # 🔐 密码相关
@@ -122,7 +122,6 @@ class User(AbstractUser, BaseModel):
             return self._avatar
         else:
             return os.path.join(domain, "static", self._avatar)
-
 
     # ======================================================
     # 🔍 工具方法

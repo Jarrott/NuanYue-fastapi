@@ -8,9 +8,11 @@
 - ✅ Pydantic v2 完全兼容
 """
 
-from typing import Generic, TypeVar, Optional, List
+from typing import Generic, TypeVar, Optional, List, Any
 from pydantic import ConfigDict, Field, BaseModel
 from pydantic.generics import GenericModel
+from sqlalchemy import Sequence
+from starlette.responses import JSONResponse
 
 # 泛型占位符
 T = TypeVar("T")
@@ -22,23 +24,59 @@ T = TypeVar("T")
 class PedroResponse(GenericModel, Generic[T]):
     code: int = Field(default=0, description="状态码")
     msg: str = Field(default="success", description="提示信息")
-    data: Optional[T] = Field(default=None, description="数据载体")
 
     model_config = ConfigDict(
-        from_attributes=True,    # ✅ 替代 orm_mode=True
-        validate_by_name=True,   # ✅ 替代 allow_population_by_field_name
+        from_attributes=True,
+        validate_by_name=True,
         arbitrary_types_allowed=True
     )
 
-    # 快捷返回成功
     @classmethod
     def success(cls, data: Optional[T] = None, msg: str = "success", code: int = 0):
-        return cls(code=code, msg=msg, data=data)
+        resp = {"code": code, "msg": msg}
+        if data is not None:            # ✅ 只有有 data 才塞进去
+            resp["data"] = data
+        return JSONResponse(content=resp)
 
-    # 快捷返回失败
     @classmethod
-    def fail(cls, msg: str = "failed", code: int = 1, data: Optional[T] = None):
-        return cls(code=code, msg=msg, data=data)
+    def fail(cls, msg: str = "failed", code: int = 1):
+        return JSONResponse(content={"code": code, "msg": msg})
+
+    @classmethod
+    def page(
+            cls,
+            *,
+            items,
+            total: int,
+            page: int,
+            size: int,
+            msg: str = "success",
+            code: int = 0,
+    ):
+        # ✅ 处理 Pydantic 对象/ORM 对象
+        def serialize_obj(obj):
+            try:
+                return obj.model_dump()  # Pydantic v2 模型
+            except:
+                try:
+                    return obj.__dict__  # ORM 对象
+                except:
+                    return obj  # 基础类型
+
+        serialized_items = [serialize_obj(i) for i in items]
+
+        payload = {
+            "code": code,
+            "msg": msg,
+            "data": {
+                "items": serialized_items,
+                "total": total,
+                "page": page,
+                "size": size
+            }
+        }
+
+        return JSONResponse(content=payload)
 
 
 # =========================================================
@@ -51,13 +89,13 @@ class PaginatedResponse(PedroResponse[List[T]], Generic[T]):
 
     @classmethod
     def success(
-        cls,
-        data: Optional[List[T]] = None,
-        total: int = 0,
-        page: int = 1,
-        size: int = 10,
-        msg: str = "success",
-        code: int = 0
+            cls,
+            data: Optional[List[T]] = None,
+            total: int = 0,
+            page: int = 1,
+            size: int = 10,
+            msg: str = "success",
+            code: int = 0
     ):
         return cls(code=code, msg=msg, data=data or [], total=total, page=page, size=size)
 
@@ -88,6 +126,7 @@ class SuccessResponse(PedroResponse[str]):
 class LoginSuccessResponse(BaseModel):
     access_token: str = ""
     refresh_token: str = ""
+    firebase_token: str = ""
     code: int = 2002
 
 
@@ -97,11 +136,13 @@ class HotCryptoResponse(PedroResponse[list[dict]]):
     data: Optional[list[dict]] = {}
     code: int = 2002
 
+
 class GoogleUserInfo(BaseModel):
     uid: str
     email: str
     name: Optional[str] = None
     avatar: Optional[str] = None
+
 
 class GoogleLoginSuccessResponse(PedroResponse[GoogleUserInfo]):
     access_token: str = ""
@@ -109,13 +150,47 @@ class GoogleLoginSuccessResponse(PedroResponse[GoogleUserInfo]):
     user: Optional[GoogleUserInfo] = None
     code: int = 2002
 
+
 class DepositCreateResponse(BaseModel):
     code: int = 2002
     msg: str = "提交充值成功"
     order_number: str
+
 
 class OneCreateResponse(BaseModel):
     # 图片上传
     code: int = 2002
     msg: str = "上传成功"
     url: str
+
+
+class CarouselListResponse(BaseModel):
+    msg: str = "success"
+    code: int = 2001
+    items: list = None
+
+class ProductResponse(BaseModel):
+    id: int
+    external_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    price: float
+    discount: Optional[float] = None
+    rating: Optional[float] = None
+    stock: Optional[int] = None
+    category: Optional[str] = None
+    brand: Optional[str] = None
+    sku: Optional[str] = None
+    images: Optional[List[str]] = None
+    thumbnail: Optional[str] = None
+    availability_status: Optional[str] = None
+    source: Optional[str] = None
+    lang: Optional[str] = "en"
+
+    class Config:
+        from_attributes = True  # ✅ 支持 SQLAlchemy ORM model -> schema
+
+class ProductDetailResponse(ProductResponse):
+    reviews: Optional[list] = None
+    shipping_info: Optional[str] = None
+    warranty_info: Optional[str] = None

@@ -8,18 +8,20 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ 支持会员开通、签到、邀请关系树
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi.responses import FileResponse
 
 from sqlalchemy import select
 from firebase_admin import auth as firebase_auth
+from sqlalchemy.util import await_only
 
 from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
-from app.pedro.pedro_jwt import jwt_service
+from app.pedro.pedro_jwt import jwt_service, FirebaseAuthService
 
 from app.api.v1.schema.response import (
     SuccessResponse,
     LoginSuccessResponse,
     GoogleLoginSuccessResponse,
-    UserInformationResponse, GoogleUserInfo, DepositCreateResponse)
+    UserInformationResponse, GoogleUserInfo, DepositCreateResponse, ErrorResponse)
 from app.api.v1.services.auth_service import AuthService
 from app.api.v1.services.deposit_service import DepositService
 from app.api.v1.services.user_service import UserService
@@ -36,12 +38,19 @@ from app.config.settings_manager import get_current_settings
 from app.api.v1.schema.user import (
     UserRegisterSchema,
     LoginSchema,
-    UserInformationSchema, OTCDepositSchema, UserAgentSchema,
+    UserInformationSchema,
+    OTCDepositSchema,
+    UserAgentSchema,
+    InformationUpdateSchema,
+    RefreshTokenSchema,
+    ForgotPasswordSendSchema,
+    ForgotPasswordResetSchema, ResetPasswordSendSchema
 )
 
 from app.api.cms.model.user import User
 from app.api.cms.model.user_group import UserGroup
 from app.util.invite_services import assign_invite_code, bind_inviter_relation
+from app.extension.google_tools.rtdb_message import rtdb_msg
 
 rp = APIRouter(prefix="/user", tags=["用户"])
 settings = get_current_settings()
@@ -50,7 +59,7 @@ settings = get_current_settings()
 # ======================================================
 # 🧩 注册新用户
 # ======================================================
-@rp.post("/register", name="用户注册",response_model=SuccessResponse)
+@rp.post("/register", name="用户注册", response_model=SuccessResponse)
 async def register_user(payload: UserRegisterSchema):
     # 用户名唯一性校验
     if await UserService.get_by_username(payload.username):
@@ -60,6 +69,7 @@ async def register_user(payload: UserRegisterSchema):
         username=payload.username,
         password=payload.password,
         inviter_code=payload.inviter_code,
+        nickname=payload.nickname,
         group_ids=payload.group_ids,
     )
     return SuccessResponse(msg="注册成功")
@@ -68,7 +78,7 @@ async def register_user(payload: UserRegisterSchema):
 # ======================================================
 # 🔐 登录并生成 Token
 # ======================================================
-@rp.post("/login",name="用户名登录", response_model=LoginSuccessResponse)
+@rp.post("/login", name="用户名登录", response_model=LoginSuccessResponse)
 async def login(data: LoginSchema, request: Request):
     """
     用户登录并获取 Token
@@ -80,7 +90,7 @@ async def login(data: LoginSchema, request: Request):
         raise HTTPException(status_code=401, detail="密码错误")
 
     tokens = await jwt_service.after_login_security(user, request, data)
-
+    firebase_tokens = await FirebaseAuthService.create_custom_token(user.id)
 
     # 记录登录设备信息
     ua_string = request.headers.get("User-Agent", "")
@@ -88,10 +98,10 @@ async def login(data: LoginSchema, request: Request):
 
     await User.add_login_device(user.id, device_info.dict())
 
-    return LoginSuccessResponse(**tokens)
+    return LoginSuccessResponse(**tokens, firebase_token=firebase_tokens)
 
 
-@rp.post("/google/login", name="谷歌登陆",response_model=GoogleLoginSuccessResponse)
+@rp.post("/google/login", name="谷歌登陆", response_model=GoogleLoginSuccessResponse)
 async def google_login(payload: dict, request: Request):
     g = AuthService.verify_google_token(payload.get("id_token"))
     user = await UserService.get_by_username(g["email"])
@@ -122,15 +132,99 @@ async def google_login(payload: dict, request: Request):
     return GoogleLoginSuccessResponse(**tokens, user=user_info)
 
 
-@rp.get("/information",name="个人详情",
+@rp.post("/refresh", name="刷新 Access Token", response_model=LoginSuccessResponse)
+async def refresh_token(json: RefreshTokenSchema):
+    """
+    使用 Refresh Token 刷新 Access Token
+    """
+
+    # 1️⃣ 校验 refresh token
+    tokens = await jwt_service.verify_refresh_token(json.refresh_token)
+    print(tokens)
+    return LoginSuccessResponse(**tokens)
+
+
+@rp.get("/information", name="个人详情",
         response_model=UserInformationResponse[UserInformationSchema],
         dependencies=[Depends(login_required)])
 def get_user_info(current_user: User = Depends(login_required)):
-    return UserInformationResponse(
+    return UserInformationResponse.success(
+        msg="个人信息获取成功",
         data=UserInformationSchema.smart_load(current_user)
     )
 
-@rp.get("/diagnose",name="检测用户是否开启VPN")
+
+@rp.put("/information", name="更新个人信息")
+async def update_user_info(payload: InformationUpdateSchema,
+                           current_user=Depends(login_required)):
+    user = current_user
+
+    # ✅ payload 只取传入的字段，避免覆盖为 None
+    data = payload.model_dump()
+
+    if "avatar" in data:
+        data["_avatar"] = data.pop("avatar")
+
+    # ✅ 执行更新
+    ok = await user.update(commit=True, **data)
+
+    if not ok:
+        raise SuccessResponse.fail(msg="更新失败")
+
+    return SuccessResponse(msg="更新成功")
+
+
+@rp.get("/forgot/password/{email}", name="【重置密码】邮箱链接")
+async def forgot_email(email: str):
+    action_settings = firebase_auth.ActionCodeSettings(
+        url=f"{settings.app.server_domain}/v1/user/reset/password",
+        handle_code_in_app=True
+    )
+
+    auth = firebase_auth.generate_password_reset_link(email, action_settings)
+
+    return auth
+
+
+@rp.post("/forgot/password/send/code", name="【重置密码】手机验证码")
+async def forgot_send_code(data: ForgotPasswordSendSchema):
+    await UserService.send_reset_code(data.phone)
+    return SuccessResponse.success(msg="验证码已发送")
+
+
+@rp.post("/forgot/password/reset")
+async def forgot_reset(data: ForgotPasswordResetSchema):
+    await UserService.reset_password(data.email, data.code, data.new_password)
+    return SuccessResponse.success(msg="密码重置成功")
+
+@rp.get("/reset/password")
+async def reset_password_html():
+    file_path = settings.storage.h5_path + "/templates/h5/reset_password/index.html"
+    return FileResponse(file_path)
+
+@rp.post("/reset/password")
+async def reset_password(request: Request, query: ResetPasswordSendSchema):
+    print("-------------check")
+    # try:
+    #     email = auth.verify_password_reset_code(oobCode)
+    #     auth.confirm_password_reset(oobCode, password)
+    #
+    #     # ✅ 同步更新你本地数据库密码
+    #     await User.update_password_by_email(email, password)
+    #
+    #     return templates.TemplateResponse(
+    #         "reset_success.html", {"request": request}
+    #     )
+    # except Exception as e:
+    #     print(e)
+    #     return templates.TemplateResponse(
+    #         "reset_fail.html", {"request": request}
+    #     )
+
+    return True
+
+
+@rp.get("/diagnose", name="检测用户是否开启VPN")
 async def diagnose(request: Request, tz: str = Query(None)):
     ip = get_client_ip(request)
     intel = geo_lookup(ip)
@@ -145,6 +239,13 @@ async def diagnose(request: Request, tz: str = Query(None)):
         "reason": intel["reason"],
     }
 
+
+@rp.get("/tt")
+async def _expire():
+    await rtdb_msg.update_balance(10001, 1)
+    return True
+
+
 # @rp.get("/user", dependencies=[Depends(login_required)])
 # async def user_access():
 #     """所有登录用户可访问"""
@@ -157,13 +258,13 @@ async def diagnose(request: Request, tz: str = Query(None)):
 #     return {"msg": "🛡️ 管理员接口访问成功"}
 
 
-@rp.get("/push/message",name="推送信息给客服")
+@rp.get("/push/message", name="推送信息给客服")
 async def broadcast_system_announcement():
     await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
     print(f"📣 已全局广播系统消息: ")
 
 
-@rp.post("/deposit/otc",name="充值方式", response_model=DepositCreateResponse)
+@rp.post("/deposit/otc", name="充值方式", response_model=DepositCreateResponse)
 async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_required)):
     key, deposit = await DepositService.submit_manual_order(
         user_id=current_user.id,
@@ -174,22 +275,27 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
 
     return DepositCreateResponse(order_number=deposit.order_no)
 
-@rp.get("/order/detail/{order_no}",name="查看订单详情")
+
+@rp.get("/order/detail/{order_no}", name="查看订单详情")
 async def order_detail():
     pass
 
-@rp.get("/shops/detail",name="查看商品详情")
+
+@rp.get("/shops/detail", name="查看商品详情")
 async def product_detail():
     pass
 
-@rp.get("/ads",name="轮播图")
+
+@rp.get("/ads", name="轮播图")
 def ads():
     pass
 
-@rp.get("/shops",name="商品列表")
+
+@rp.get("/shops", name="商品列表")
 def ads():
     pass
 
-@rp.get("/kyc",name="用户认证")
+
+@rp.get("/kyc", name="用户认证")
 def ads():
     pass

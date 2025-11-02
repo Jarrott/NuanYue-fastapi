@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>重置密码</title>
+</head>
+
+<body>
+<h2>🔐 重置密码</h2>
+
+<div>
+  <label>新密码:</label><br>
+  <input type="password" id="pwd" /><br><br>
+
+  <label>确认新密码:</label><br>
+  <input type="password" id="pwd2" /><br><br>
+
+  <button onclick="submitReset()">提交</button>
+</div>
+
+<p id="msg"></p>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+const oobCode = urlParams.get("oobCode");
+
+if (!oobCode) {
+  document.getElementById("msg").innerText = "链接无效或已过期 ❌";
+}
+
+async function submitReset() {
+  const pwd = document.getElementById("pwd").value;
+  const pwd2 = document.getElementById("pwd2").value;
+
+  if (pwd !== pwd2) {
+    return document.getElementById("msg").innerText = "两次密码不一致 ❌";
+  }
+
+  const res = await fetch("https://your-api.com/v1/forgot/password/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      oobCode: oobCode,
+      new_password: pwd
+    })
+  });
+
+  const data = await res.json();
+
+  if (data.code === 2002) {
+    document.getElementById("msg").innerText = "✅ 密码修改成功，请重新登录";
+    setTimeout(() => location.href = "/login.html", 2000);
+  } else {
+    document.getElementById("msg").innerText = "❌ " + data.msg;
+  }
+}
+</script>
+
+</body>
+</html>

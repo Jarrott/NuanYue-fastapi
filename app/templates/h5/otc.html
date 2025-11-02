@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>OTC充值测试 + 钱包实时更新</title>
+<style>
+body { font-family: Arial; padding:20px; }
+input,button,select { padding:6px; margin:5px 0; }
+</style>
+</head>
+
+<body>
+<h2>🔥 OTC充值 + 实时余额监听 Demo</h2>
+
+<!-- ✅ 登录 -->
+<div>
+  账号: <input id="username" value="test1">
+  密码: <input id="password" type="password" value="123123">
+  <button onclick="login()">登录</button>
+</div>
+<hr>
+
+<!-- ✅ 用户钱包余额实时显示 -->
+<div>
+  <strong>余额：</strong><span id="balance">loading...</span> USDT
+</div>
+<hr>
+
+<!-- ✅ OTC 充值表单 -->
+<h3>充值提交</h3>
+<div>
+  金额 <input id="amount" type="number" /> <br>
+  凭证图片URL <input id="proof" style="width:300px;" /> <br>
+  币种 <select id="token">
+    <option value="USDT">USDT</option>
+  </select> <br><br>
+  <button onclick="submitDeposit()">提交充值</button>
+</div>
+
+<!-- ✅ Firebase + 业务脚本 -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-app.js";
+import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-auth.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.11/firebase-database.js";
+
+// ✅ Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyDFdByzZ3hR-pkh6TR1nCJ04tVko41Z_E8",
+  authDomain: "ttte-a5dae.firebaseapp.com",
+  projectId: "ttte-a5dae",
+  storageBucket: "ttte-a5dae.appspot.com",
+  messagingSenderId: "379230954149",
+  databaseURL: "https://ttte-a5dae-default-rtdb.asia-southeast1.firebasedatabase.app",
+  appId: "1:379230954149:web:19a9f93f1b881d170ba34c"
+};
+
+const API = "http://localhost:5001/v1"; // ✅ 改成你的 FastAPI 地址
+
+let accessToken = "";
+let firebaseToken = "";
+let userId = "";
+
+// 初始化 Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+
+// ✅ 登录 FastAPI
+window.login = async () => {
+  const body = {
+    username: document.getElementById("username").value,
+    password: document.getElementById("password").value
+  };
+
+  const res = await fetch(`${API}/user/login`, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify(body)
+  });
+
+  const data = await res.json();
+  accessToken = data.access_token;
+  firebaseToken = data.firebase_token;
+
+  console.log("✅ FastAPI登录成功:", data);
+
+  // ✅ 解析用户信息
+  const res2 = await fetch(`${API}/user/information`, {
+    headers:{ Authorization:`Bearer ${accessToken}` }
+  });
+  const u = await res2.json();
+  console.log(u);
+  userId = u.data.id;
+
+  console.log("✅ UID:", userId);
+
+  // ✅ 用 Firebase Token 登录 Firebase
+  await signInWithCustomToken(auth, firebaseToken);
+  console.log("✅ Firebase 登录成功:", auth.currentUser.uid);
+
+  startWalletListener();
+  alert("登录成功 ✅");
+};
+
+
+// ✅ 监听用户钱包余额
+function startWalletListener() {
+  const walletRef = ref(db, `user_wallet/${userId}/balance`);
+  onValue(walletRef, (snap) => {
+    const balance = snap.val() ?? 0;
+    document.getElementById("balance").innerText = balance;
+    console.log("💰余额更新:", balance);
+  });
+}
+
+
+// ✅ OTC 充值提交
+window.submitDeposit = async () => {
+  const body = {
+    amount: parseFloat(document.getElementById("amount").value),
+    proof_image: document.getElementById("proof").value,
+    token: document.getElementById("token").value
+  };
+
+  const res = await fetch(`${API}/user/deposit/otc`, {
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      Authorization:`Bearer ${accessToken}`
+    },
+    body:JSON.stringify(body)
+  });
+
+  const data = await res.json();
+  console.log("📥 提交结果:", data);
+  alert("充值提交成功 ✅ 等待系统审核");
+};
+</script>
+</body>
+</html>

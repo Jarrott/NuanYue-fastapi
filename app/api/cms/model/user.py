@@ -14,13 +14,6 @@ class User(LinUser):
         super().__init__(**kwargs)
         self._exclude = ["delete_time", "create_time", "is_deleted", "update_time"]
 
-    # ===========================
-    # 异步方法
-    # ===========================
-
-
-class User(LinUser):
-
     async def jset(self, key, value):
         async with async_session_factory() as session:
             await JsonbManager.set(session, self.__class__, self.id, key, value)

@@ -1,37 +1,35 @@
-"""
-# @Time    : 2025/11/1 0:02
-# @Author  : Pedro
-# @File    : carousel.py
-# @Software: PyCharm
-"""
-# app/services/carousel_service.py
-from app.pedro import async_session_factory
+import json
+
 from app.api.v1.model.carousel import Carousel
 from app.pedro.service_manager import ServiceManager
 
-CACHE_TTL = 120  # 2分钟缓存
-
+CACHE_TTL=1200
 
 class CarouselService:
     @staticmethod
     async def list_by_country(country: str):
         rds = ServiceManager.get("redis")
-        key = f"carousel:{country}"
+        key = f"carousel:{country.upper()}"
 
         cache = await rds.get(key)
         if cache:
-            return cache
+            # ✅ 若是 bytes → decode → json
+            if isinstance(cache, bytes):
+                return json.loads(cache.decode())
 
-        rows = await Carousel.get(country=country, one=False)
+            # ✅ 若是 str → json
+            if isinstance(cache, str):
+                return json.loads(cache)
 
-        data = [
-            {"id": c.id, "image": c.image, "link": c.link}
-            for c in rows
-        ]
+            # ✅ 若是 list → 直接返回 (兼容旧缓存)
+            if isinstance(cache, list):
+                return cache
 
-        await rds.set(key, data, ex=CACHE_TTL)
+        # 🛢️ DB
+        rows = await Carousel.get(country=country.upper(), one=False)
+
+        data = [{"id": c.id, "image": c.image, "link": c.link} for c in rows]
+
+        # ✅ 强制写入 JSON string
+        await rds.set(key, json.dumps(data), ex=CACHE_TTL)
         return data
-
-    @staticmethod
-    async def clear_cache(country: str):
-        await ServiceManager.get("redis").delete(f"carousel:{country}")

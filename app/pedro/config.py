@@ -53,6 +53,7 @@ class AppConfig(BaseModel):
     timezone: str = "Asia/Tokyo"
     host: str = "127.0.0.1"
     port: int = 8080
+    server_domain: str = None
     oss_domain: str = None
 
 

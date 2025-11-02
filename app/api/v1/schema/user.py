@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Optional, Any, Dict, Self
 from pydantic import Field, validator, EmailStr, field_serializer
 from user_agents import parse as ua_parse
+from fastapi import Query
 from app.api.cms.schema import GroupIdListSchema, EmailSchema
 from app.pedro.exception import BaseModel, ParameterError
 
@@ -66,6 +67,10 @@ class UserRegisterSchema(BaseModel):
     password: str = Field(description="密码", min_length=6, max_length=22)
     group_ids: List[int] = Field(description="用户组,前端客户默认3", default=[3])
     inviter_code: str = Field(default=None)
+    phone: int = Field(default=None)
+    first_name: str = Field(default=None)
+    last_name: str = Field(default=None)
+    nickname: str = Field(default=None)
 
 
 class UserInformationUpdateSchema(BaseModel):
@@ -81,6 +86,10 @@ class LoginSchema(BaseModel):
 
 class LoginTokenSchema(BaseModel):
     access_token: str = Field(description="access_token")
+    refresh_token: str = Field(description="refresh_token")
+
+
+class RefreshTokenSchema(BaseModel):
     refresh_token: str = Field(description="refresh_token")
 
 
@@ -130,10 +139,13 @@ class UserInformationSchema(BaseSchema):
     # ✅ 从 extra 中筛选部分字段展示
     vip_status: Optional[bool] = None
     vip_expire_at: Optional[datetime] = None
+    points: Optional[int] = None
+    balance: Optional[float] = None
     lang: Optional[str] = None
     theme: Optional[str] = None
     invite_code: Optional[str] = None
     device_info: Optional[list[dict]] = None
+    levels: Optional[str] = None
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -150,8 +162,6 @@ class UserInformationSchema(BaseSchema):
         setting = extra.get("settings") or {}
         sensitive = extra.get("sensitive") or {}
 
-
-
         return cls(
             id=user.id,
             username=user.username,
@@ -159,6 +169,9 @@ class UserInformationSchema(BaseSchema):
             email=user.email,
             avatar=avatar,
             create_time=user.create_time,
+            points=extra.get("points"),
+            balance=extra.get("balance"),
+            levels=extra.get("level"),
             vip_status=extra.get("vip_status"),
             vip_expire_at=extra.get("vip_expire_at"),
             lang=setting.get("lang"),
@@ -172,6 +185,7 @@ class OTCDepositSchema(BaseModel):
     amount: float
     token: str = "USDT"
     proof_image: str  # 图片URL
+
 
 class UserAgentSchema(BaseModel):
     device: str
@@ -188,3 +202,32 @@ class UserAgentSchema(BaseModel):
             os=ua.os.family or "Unknown",
             raw=ua_string
         )
+
+
+class InformationUpdateSchema(BaseModel):
+    avatar: Optional[str] = None
+    nickname: Optional[str] = None
+    email: Optional[str] = None
+
+class ForgotPasswordSendSchema(BaseModel):
+    email: Optional[str] = None
+
+class ForgotPasswordResetSchema(BaseModel):
+    email: Optional[str] = None
+    code: Optional[str] = None
+    new_password: Optional[str] = None
+
+class ResetPasswordSendSchema(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    oobCode: Optional[str] = None
+
+
+class PageQuery:
+    def __init__(
+        self,
+        page: int = Query(1, ge=1),
+        size: int = Query(10, ge=1, le=100)
+    ):
+        self.page = page
+        self.size = size

@@ -2,6 +2,7 @@
 """
 Pedro exception system - enhanced ExceptionGroup support
 """
+import json
 import traceback
 import uuid
 from typing import Optional
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from app.extension.i18n.i18n_exception import translate_message
+from starlette.responses import Response
 
 try:
     ExceptionGroup  # noqa
@@ -71,9 +73,8 @@ class InternalServerError(APIException):
 
 
 class UnAuthentication(APIException):
-    code = 401
-    message = "Authentication Failed"
-    message_code = 10010
+    def __init__(self, msg="Authentication Failed", error_code=10010):
+        super().__init__(msg, error_code, http_code=401)
 
 
 async def build_error_response(request: Request, msg: str, error_code: int, http_code: int, trace_id=None):
@@ -140,3 +141,37 @@ def register_exception_handlers(app):
         if request.headers.get("upgrade", "").lower() == "websocket":
             return await call_next(request)
         return await call_next(request)
+
+    @app.middleware("http")
+    async def inject_request_path_middleware(request: Request, call_next):
+        response = await call_next(request)
+
+        # 只处理 JSON 响应
+        if "application/json" in response.headers.get("content-type", ""):
+            try:
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk
+
+                data = json.loads(body)
+                if isinstance(data, dict) and "request" in data:
+                    data["request"] = request.url.path
+                    new_body = json.dumps(data).encode()
+
+                    return Response(
+                        content=new_body,
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                        media_type="application/json"
+                    )
+                else:
+                    return Response(
+                        content=body,
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                        media_type="application/json"
+                    )
+            except:
+                pass
+
+        return response

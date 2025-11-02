@@ -62,7 +62,9 @@ def register_cors(app: FastAPI):
 def register_exception_handlers(app: FastAPI):
     """注册全局异常"""
     from app.pedro.exception import register_exception_handlers
+    from app.pedro.request_path import InjectRequestPathMiddleware
     register_exception_handlers(app)
+    app.add_middleware(InjectRequestPathMiddleware)
     logger.info("✅ 异常处理器已注册")
 
 

@@ -75,6 +75,42 @@ class RTDBMessageService:
             await self.mark_read(uid, msg_id)
 
     # -----------------------------------------
+    # 💰 更新用户余额（后台调用）
+    # -----------------------------------------
+    async def update_balance(self, uid: int, balance: float):
+        now_ms = int(time.time() * 1000)
+
+        data = {
+            "balance": balance,
+            "updated_at": now_ms
+        }
+
+        path = rtdb.path("user_wallet", uid)  # ✅ 专用 wallet node
+        rtdb.set(path, data)
+
+        return {"uid": uid, "balance": balance, "ts": now_ms}
+
+    # -----------------------------------------
+    # 📥 获取用户余额（可用于接口）
+    # -----------------------------------------
+    async def get_balance(self, uid: int):
+        path = rtdb.path("user_wallet", uid)
+        return rtdb.get(path) or {"balance": 0}
+
+    # -----------------------------------------
+    # 🔔 监听余额变动（可给 WebSocket / App）
+    # -----------------------------------------
+    def listen_balance(self, uid: int, callback: Callable[[dict], None]):
+        path = rtdb.path("user_wallet", uid)
+
+        def handler(event):
+            if event.data and isinstance(event.data, dict):
+                callback(event.data)
+
+        rtdb.listen(path, handler)
+
+
+    # -----------------------------------------
     # 🔔 监听新消息（实时推送，比如 WS）
     # -----------------------------------------
     def listen(self, uid: int, callback: Callable[[dict], None]):
