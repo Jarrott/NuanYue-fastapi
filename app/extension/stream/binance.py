@@ -22,6 +22,8 @@ from app.extension.websocket.wss import websocket_manager
 # =========================================================
 REDIS_LAST_KEY = "market:last_push:{symbol}:{interval}"
 REDIS_SNAPSHOT = "market:snapshot:{symbol}:{interval}"
+REDIS_SWITCH_KEY = "binance:push:enabled"  # redis flag
+
 STREAM_HEARTBEAT = {}
 
 settings = get_current_settings()
@@ -60,6 +62,17 @@ class BinanceKlineStream:
     async def handle_message(self, msg: str):
         """处理实时 K线消息"""
         try:
+            # ✅ 动态 Redis 推送开关
+            flag = await self.redis.get(REDIS_SWITCH_KEY)
+            # print(f"[Binance Switch] => {flag}")
+
+            # flag 为 None 时默认开启
+            if flag == "0":
+                return
+        except Exception:
+            pass  # 出错也不阻塞行情接收
+
+        try:
             data = json.loads(msg)
             if data.get("e") != "kline":
                 return
@@ -67,10 +80,11 @@ class BinanceKlineStream:
             k = data["k"]
             symbol = k["s"].upper()
             interval = k["i"]
-            channel = f"{symbol.lower()}-{interval}"  # ✅ 统一频道命名
+            channel = f"{symbol.lower()}-{interval}"
             now_ms = int(time.time() * 1000)
 
             payload = {
+                "type": "ticker",
                 "symbol": symbol,
                 "interval": interval,
                 "open": k["o"],
@@ -83,7 +97,7 @@ class BinanceKlineStream:
                 "closed": k["x"],
             }
 
-            # ✅ 缓存最新 K线
+            # ✅ 写缓存
             await self.redis.set(
                 REDIS_SNAPSHOT.format(symbol=symbol, interval=interval),
                 json.dumps(payload),
@@ -95,39 +109,21 @@ class BinanceKlineStream:
                 ex=600,
             )
 
-            # ✅ 限流：避免频繁广播
+            # ✅ 限频（减少 WS 推送压力）
             if not k["x"] and (now_ms - self.last_emit_ts < self.coalesce_ms):
                 return
+
             self.last_emit_ts = now_ms
 
-            # ✅ 推送至 WebSocket 频道
-            await websocket_manager.broadcast(
-                f"{symbol.lower()}-{interval}",
-                {
-                    "type": "ticker",  # ✅ 前端监听字段
-                    "symbol": symbol.upper(),
-                    "close": k["c"],
-                    "volume": k["v"],
-                    "interval": interval
-                }
-            )
+            # ✅ 只推送订阅该频道的客户端
+            await websocket_manager.broadcast(channel, payload)
 
-            # ✅ 打印调试
-            # print(f"📤 推送频道 {channel} | 收盘价 {k['c']} | 成交量 {k['v']}")
+            # ✅ 同时推送全局 (如果你希望所有用户默认看到最新数据)
+            await websocket_manager.broadcast_all(payload)
 
         except Exception as e:
             print(f"⚠️ [{self.symbol}] 解析异常: {e}")
             traceback.print_exc()
-
-        await websocket_manager.broadcast_all(
-            {
-                "type": "ticker",
-                "symbol": symbol.upper(),
-                "close": k["c"],
-                "volume": k["v"],
-                "interval": interval
-            }
-        )
 
 
 # =========================================================

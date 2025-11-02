@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>WebSocket Ping Test</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body { font-family: Arial; margin: 20px; }
+  #avg { font-size: 20px; font-weight: bold; margin-top: 15px; }
+  #grade { font-size: 18px; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<h2>WebSocket Latency Monitor</h2>
+
+<input id="wsUrl" style="width: 400px;" value="wss://api-test.qi-yue.vip/v1/ws/ping">
+<button onclick="startTest()">Start Test (5s)</button>
+
+<div id="status" style="margin-top: 10px;">Status: Idle</div>
+<canvas id="chart" height="120"></canvas>
+<div id="avg"></div>
+<div id="grade"></div>
+
+<script>
+let ws = null;
+let timer = null;
+let stopTimer = null;
+let dataPoints = [];
+let chart = null;
+
+function grade(rtt) {
+    if (rtt < 50) return "🟢 Excellent network";
+    if (rtt < 150) return "🟡 Good network";
+    if (rtt < 300) return "🟠 Poor network";
+    return "🔴 Very bad network";
+}
+
+function startTest() {
+    const url = document.getElementById("wsUrl").value;
+
+    // reset
+    if (ws) ws.close();
+    if (timer) clearInterval(timer);
+    if (stopTimer) clearTimeout(stopTimer);
+    dataPoints = [];
+
+    document.getElementById("status").innerText = "Status: Connecting...";
+
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+        document.getElementById("status").innerText = "Status: Testing for 5 seconds...";
+
+        timer = setInterval(() => {
+            const t0 = performance.now();
+            ws.send(t0);
+        }, 200); // ping every 200ms for smoother curve
+
+        // Auto stop after 5 seconds
+        stopTimer = setTimeout(stopTest, 5000);
+    };
+
+    ws.onmessage = e => {
+        const t3 = performance.now();
+        const t0 = Number(e.data);
+        const rtt = t3 - t0;
+
+        if (!isNaN(rtt) && rtt > 0) {
+            dataPoints.push(rtt);
+            if (dataPoints.length > 50) dataPoints.shift();
+        }
+
+        updateChart();
+        updateStats();
+    };
+
+    ws.onerror = () => {
+        document.getElementById("status").innerText = "Status: ❌ Error";
+        stopTest();
+    };
+
+    ws.onclose = () => {
+        // avoid overwriting normal close message
+        if (!stopTimer) {
+            document.getElementById("status").innerText = "Status: ❌ Disconnected";
+        }
+    };
+
+    initChart();
+}
+
+function stopTest() {
+    clearInterval(timer);
+    stopTimer && clearTimeout(stopTimer);
+    stopTimer = null;
+
+    if (ws) {
+        ws.close();
+        ws = null;
+    }
+
+    document.getElementById("status").innerText = "Status: ✅ Test Completed";
+}
+
+function initChart() {
+    const ctx = document.getElementById("chart").getContext("2d");
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: "RTT (ms)",
+                data: [],
+                borderColor: "#007bff",
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.3
+            }]
+        },
+        options: {
+            animation: false,
+            scales: {
+                y: {
+                    suggestedMin: 0,
+                    suggestedMax: 300
+                }
+            }
+        }
+    });
+}
+
+function updateChart() {
+    chart.data.labels = dataPoints.map((_, i) => i);
+    chart.data.datasets[0].data = dataPoints;
+    chart.update("none");
+}
+
+function updateStats() {
+    if (dataPoints.length === 0) return;
+
+    const avg = dataPoints.reduce((a,b)=>a+b,0) / dataPoints.length;
+    document.getElementById("avg").innerText = `Average RTT: ${avg.toFixed(1)} ms`;
+    document.getElementById("grade").innerText = grade(avg);
+}
+</script>
+
+</body>
+</html>

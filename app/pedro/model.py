@@ -126,6 +126,20 @@ class User(AbstractUser, BaseModel):
     # ======================================================
     # 🔍 工具方法
     # ======================================================
+    async def set_extra(self, **fields):
+        """单字段/多字段写入 user.extra，自动 merge"""
+        extra = self.extra or {}
+        extra.update(fields)
+        return await self.update(commit=True, extra=extra)
+
+    async def update_extra(self, data: dict):
+        extra = self.extra or {}
+        extra.update(data)
+        return await self.update(commit=True, extra=extra)
+
+    def get_extra(self, key: str, default=None):
+        return (self.extra or {}).get(key, default)
+
     @classmethod
     async def count_by_id(cls, uid: int) -> int:
         """根据 ID 统计数量"""
@@ -151,6 +165,7 @@ class User(AbstractUser, BaseModel):
             if not user.is_active:
                 raise UnAuthentication("用户未激活")
             return user
+
 
 
 class Group(AbstractGroup, BaseModel):

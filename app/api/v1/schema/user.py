@@ -146,6 +146,9 @@ class UserInformationSchema(BaseSchema):
     invite_code: Optional[str] = None
     device_info: Optional[list[dict]] = None
     levels: Optional[str] = None
+    phone: Optional[str] = None
+    gender: Optional[int] = None
+    birthday: Optional[str] = None
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -174,6 +177,9 @@ class UserInformationSchema(BaseSchema):
             levels=extra.get("level"),
             vip_status=extra.get("vip_status"),
             vip_expire_at=extra.get("vip_expire_at"),
+            phone=extra.get("phone"),
+            gender=extra.get("gender"),
+            birthday=extra.get("birthday"),
             lang=setting.get("lang"),
             theme=setting.get("theme"),
             invite_code=referral.get("invite_code"),
@@ -208,6 +214,9 @@ class InformationUpdateSchema(BaseModel):
     avatar: Optional[str] = None
     nickname: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
+    gender: Optional[int] = None
+    birthday: Optional[str] = None
 
 class ForgotPasswordSendSchema(BaseModel):
     email: Optional[str] = None

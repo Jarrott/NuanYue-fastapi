@@ -13,71 +13,9 @@ from pydantic import ConfigDict, Field, BaseModel
 from pydantic.generics import GenericModel
 from sqlalchemy import Sequence
 from starlette.responses import JSONResponse
+from app.pedro.response import PedroResponse
 
-# 泛型占位符
 T = TypeVar("T")
-
-
-# =========================================================
-# ✅ 通用响应模型（带泛型）
-# =========================================================
-class PedroResponse(GenericModel, Generic[T]):
-    code: int = Field(default=0, description="状态码")
-    msg: str = Field(default="success", description="提示信息")
-
-    model_config = ConfigDict(
-        from_attributes=True,
-        validate_by_name=True,
-        arbitrary_types_allowed=True
-    )
-
-    @classmethod
-    def success(cls, data: Optional[T] = None, msg: str = "success", code: int = 0):
-        resp = {"code": code, "msg": msg}
-        if data is not None:            # ✅ 只有有 data 才塞进去
-            resp["data"] = data
-        return JSONResponse(content=resp)
-
-    @classmethod
-    def fail(cls, msg: str = "failed", code: int = 1):
-        return JSONResponse(content={"code": code, "msg": msg})
-
-    @classmethod
-    def page(
-            cls,
-            *,
-            items,
-            total: int,
-            page: int,
-            size: int,
-            msg: str = "success",
-            code: int = 0,
-    ):
-        # ✅ 处理 Pydantic 对象/ORM 对象
-        def serialize_obj(obj):
-            try:
-                return obj.model_dump()  # Pydantic v2 模型
-            except:
-                try:
-                    return obj.__dict__  # ORM 对象
-                except:
-                    return obj  # 基础类型
-
-        serialized_items = [serialize_obj(i) for i in items]
-
-        payload = {
-            "code": code,
-            "msg": msg,
-            "data": {
-                "items": serialized_items,
-                "total": total,
-                "page": page,
-                "size": size
-            }
-        }
-
-        return JSONResponse(content=payload)
-
 
 # =========================================================
 # ✅ 分页响应模型（含分页元信息）

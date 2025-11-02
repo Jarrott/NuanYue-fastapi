@@ -40,8 +40,8 @@
 <script>
 (async () => {
   // 模拟当前登录用户
-  const uid = 1;
-  const ws = new WebSocket(`ws://localhost:5001/v1/ws/market?uid=${uid}`);
+  const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1aWQiOjEsInZlciI6Miwic2NvcGUiOlsidXNlciJdLCJpYXQiOjE3NjIwODU2NDQsImV4cCI6MTc2MjA4OTI0NCwidHlwZSI6ImFjY2VzcyJ9.p4f3mGbXzKKvrDOzRIcAZTYKocHq8RK18TW2IHLtib0";
+  const ws = new WebSocket(`ws://localhost:5001/v1/ws/?token=${token}`);
   const marketBody = document.getElementById("market-body");
   const orderLog = document.getElementById("order-log");
   const sysLog = document.getElementById("system-log");

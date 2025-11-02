@@ -49,6 +49,7 @@ from app.api.v1.schema.user import (
 
 from app.api.cms.model.user import User
 from app.api.cms.model.user_group import UserGroup
+from app.pedro.response import PedroResponse
 from app.util.invite_services import assign_invite_code, bind_inviter_relation
 from app.extension.google_tools.rtdb_message import rtdb_msg
 
@@ -155,23 +156,30 @@ def get_user_info(current_user: User = Depends(login_required)):
 
 
 @rp.put("/information", name="更新个人信息")
-async def update_user_info(payload: InformationUpdateSchema,
-                           current_user=Depends(login_required)):
+async def update_user_info(
+        payload: InformationUpdateSchema,
+        current_user=Depends(login_required)
+):
     user = current_user
+    data = payload.model_dump(exclude_none=True)
 
-    # ✅ payload 只取传入的字段，避免覆盖为 None
-    data = payload.model_dump()
-
+    # ✅ 特殊 avatar
     if "avatar" in data:
         data["_avatar"] = data.pop("avatar")
 
-    # ✅ 执行更新
-    ok = await user.update(commit=True, **data)
+    # ✅ extra 字段专门处理
+    extra_fields = ("phone", "gender", "birthday")
+    extra_data = {k: data.pop(k) for k in list(data.keys()) if k in extra_fields}
 
-    if not ok:
-        raise SuccessResponse.fail(msg="更新失败")
+    # ✅ 先更新普通字段
+    if data:
+        await user.update(commit=True, **data)
 
-    return SuccessResponse(msg="更新成功")
+    # ✅ 再更新 extra 字段
+    if extra_data:
+        await user.update_extra(extra_data)
+
+    return PedroResponse.success(msg="用户信息更新成功")
 
 
 @rp.get("/forgot/password/{email}", name="【重置密码】邮箱链接")
