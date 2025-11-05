@@ -33,7 +33,7 @@ cryptography = "^46.0.3"
 
 # --- Config / Settings ---
 python-dotenv = "^1.1.1"
-pydantic = "^2.12.3"
+pydantic = {extras = ["email"], version = "^2.12.4"}
 pydantic-settings = "^2.11.0"
 PyYAML = "^6.0.3"
 
@@ -72,6 +72,7 @@ user-agents = "^2.2.0"
 qiniu = "^7.17.0"
 python-multipart = "^0.0.20"
 geoip2 = "^5.1.0"
+pycryptodome = "^3.23.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.10.0"

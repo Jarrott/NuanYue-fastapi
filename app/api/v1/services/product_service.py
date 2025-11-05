@@ -1,3 +1,5 @@
+from pyexpat import features
+
 from sqlalchemy import select, func
 from app.pedro.db import async_session_factory
 from app.api.v1.model.shop_product import ShopProduct
@@ -7,7 +9,7 @@ from app.api.v1.schema.response import ProductResponse
 class ProductService:
 
     @staticmethod
-    async def list_products(keyword=None, category=None, brand=None, order_by="id", sort="desc", page=1, size=10):
+    async def list_products(keyword=None, category=None, featured=None,brand=None, order_by="id", sort="desc", page=1, size=10):
         async with async_session_factory() as session:
 
             query = select(ShopProduct)
@@ -18,6 +20,9 @@ class ProductService:
                 query = query.where(ShopProduct.category == category)
             if brand:
                 query = query.where(ShopProduct.brand == brand)
+            if featured:
+                query = query.where(ShopProduct.featured == featured)
+
 
             # total count
             total = await session.scalar(

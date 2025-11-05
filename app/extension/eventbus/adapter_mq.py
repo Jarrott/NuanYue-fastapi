@@ -41,17 +41,35 @@ class MQAdapter:
             routing_key=""
         )
 
-    async def subscribe(self, callback):
-        if not self._connected:
-            await self.init()
+    # async def subscribe(self, callback):
+    #     if not self._connected:
+    #         await self.init()
+    #
+    #     async with self.queue.iterator() as it:
+    #         async for msg in it:
+    #             async with msg.process():
+    #                 data = json.loads(msg.body.decode())
+    #                 if data.get("_src") == MQAdapter.SOURCE_ID:
+    #                     continue  # 🚫 忽略自己发出的广播
+    #                 await callback(data)
 
-        async with self.queue.iterator() as it:
-            async for msg in it:
-                async with msg.process():
-                    data = json.loads(msg.body.decode())
-                    if data.get("_src") == MQAdapter.SOURCE_ID:
-                        continue  # 🚫 忽略自己发出的广播
-                    await callback(data)
+    async def subscribe(self, callback):
+        while True:
+            try:
+                if not self._connected:
+                    await self.init()
+
+                async with self.queue.iterator() as it:
+                    async for msg in it:
+                        async with msg.process():
+                            data = json.loads(msg.body.decode())
+                            if data.get("_src") == MQAdapter.SOURCE_ID:
+                                continue
+                            await callback(data)
+
+            except Exception as e:
+                print(f"⚠️ MQ subscribe error, retrying: {e}")
+                await asyncio.sleep(2)
 
     async def close(self):
         if self.conn and not self.conn.is_closed:

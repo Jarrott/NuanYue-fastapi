@@ -12,7 +12,7 @@
 @Software: PyCharm
 """
 from sqlalchemy import (
-    Column, Integer, String, Numeric, JSON, DateTime, Text, select
+    Column, Integer, String, Numeric, JSON, DateTime, Text, select, Boolean
 )
 from datetime import datetime
 from typing import Optional
@@ -31,6 +31,7 @@ class ShopProduct(InfoCrud):
     external_id = Column(String(50), unique=True, nullable=True)
     title = Column(String(255))
     description = Column(Text)
+    featured = Column(Boolean, default=False)
     price = Column(Numeric(10, 2))
     discount = Column(Numeric(5, 2))
     rating = Column(Numeric(3, 2))

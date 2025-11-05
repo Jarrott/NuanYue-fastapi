@@ -30,8 +30,8 @@ database:
 auth:
   secret: "lin-secret" # 上产环境要换掉
   algorithm: HS256
-  access_expires_in: 3600        # 秒
-  refresh_expires_in: 1 # 天
+  access_expires_in: ${ACCESS_EXPIRES_IN}   # ${ACCESS_EXPIRES_IN_DAYS} 天/单位${ACCESS_EXPIRES_IN_SECONDS} / 秒单位
+  refresh_expires_in: ${REFRESH_EXPIRES_IN} # 天
   issuer: Pedro-Core
 
 # ===============================
@@ -160,3 +160,7 @@ qiniu:
   access_key: "pXGaTVOeM-psbf_nw0hftAvqnMkOCdjFEJVUlKDq"
   secret_key: "_giPlnkbEuxLDDqUgRquXsqJC8qsk7twx4e1Ptdq"
   cdn: "https://up.qi-yue.vip"
+
+aes:
+  secret: ${AES_KEY}
+  iv: ${AES_IV}

@@ -7,7 +7,7 @@ FastAPI 版本 LinCMS 枚举定义
 ✅ 可扩展 Enum 基类
 """
 
-from enum import Enum
+from enum import Enum, IntEnum
 
 
 class GroupLevelEnum(int, Enum):
@@ -39,3 +39,8 @@ class GroupLevelEnum(int, Enum):
         if name in cls.__members__:
             return cls[name]
         raise ValueError(f"无效的用户等级名称: {name}")
+
+class KYCStatus(IntEnum):
+    PENDING = 0
+    APPROVED = 1
+    REJECTED = 2

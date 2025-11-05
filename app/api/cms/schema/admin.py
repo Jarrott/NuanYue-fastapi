@@ -15,3 +15,15 @@ class AdminDepositSchema(BaseModel):
 
 class AdminBroadcastSchema(BaseModel):
     msg: str
+
+
+class FirebaseCreateUserSchema(BaseModel):
+    email: str = None
+    password: str = None
+    display_name: str | None = None
+    admin: bool = False  # 是否为管理员
+
+class KYCReviewSchema(BaseModel):
+    user_id: int = None
+    approve: bool = None
+    reason: str = None

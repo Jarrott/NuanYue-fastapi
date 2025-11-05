@@ -6,7 +6,7 @@
 """
 import re
 from datetime import datetime
-from typing import List, Optional, Any, Dict, Self
+from typing import List, Optional, Any, Dict, Self, Literal
 from pydantic import Field, validator, EmailStr, field_serializer
 from user_agents import parse as ua_parse
 from fastapi import Query
@@ -82,6 +82,7 @@ class LoginSchema(BaseModel):
     password: str = Field(description="密码")
     captcha: Optional[str] = Field(description="验证码", default=None)
     remember_me: str = Field(description="是否信任此设备", default="false")
+    password_encrypted: bool = Field(default=False,description="用户登录密码是否明文传入")
 
 
 class LoginTokenSchema(BaseModel):
@@ -135,6 +136,7 @@ class UserInformationSchema(BaseSchema):
     email: Optional[str] = None
     avatar: Optional[str] = None
     create_time: Optional[datetime] = Field(None, alias="create_time")
+    update_time: Optional[datetime] = Field(None, alias="update_time")
 
     # ✅ 从 extra 中筛选部分字段展示
     vip_status: Optional[bool] = None
@@ -149,6 +151,7 @@ class UserInformationSchema(BaseSchema):
     phone: Optional[str] = None
     gender: Optional[int] = None
     birthday: Optional[str] = None
+    kyc_status: Optional[int] = None
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -172,6 +175,7 @@ class UserInformationSchema(BaseSchema):
             email=user.email,
             avatar=avatar,
             create_time=user.create_time,
+            update_time=user.update_time,
             points=extra.get("points"),
             balance=extra.get("balance"),
             levels=extra.get("level"),
@@ -180,6 +184,7 @@ class UserInformationSchema(BaseSchema):
             phone=extra.get("phone"),
             gender=extra.get("gender"),
             birthday=extra.get("birthday"),
+            kyc_status=extra.get("kyc_status"),
             lang=setting.get("lang"),
             theme=setting.get("theme"),
             invite_code=referral.get("invite_code"),
@@ -240,3 +245,29 @@ class PageQuery:
     ):
         self.page = page
         self.size = size
+
+
+class UserKycSchema(BaseModel):
+    # 基础身份
+    # Field(...) 省略号表示不能为空
+    full_name: str = Field(..., description="用户真实姓名")
+    dob: str = Field(..., description="出生日期 YYYY-MM-DD")
+    nationality: str = Field(..., description="国籍，例如 CN, JP, US")
+
+    # 证件信息
+    id_type: Literal["passport", "national_id", "driver_license"] = Field(..., description="证件类型")
+    id_number: str = Field(..., description="证件号码")
+
+    # 证件图片 URL（文件先上传 Storage）
+    id_front_url: str = Field(..., description="证件正面图片 URL")
+    id_back_url: Optional[str] = Field(None, description="证件背面图片 URL（护照可能没有）")
+    selfie_url: str = Field(..., description="手持证件自拍 URL")
+
+    # 联系方式
+    contact_email: Optional[EmailStr] = Field(None, description="联系邮箱")
+    contact_phone: Optional[str] = Field(None, description="联系电话")
+    status: str = Field(default="pending", description="认证状态")
+
+    # 可选备注
+    remark: Optional[str] = Field("", description="备注，可输入审核说明")
+

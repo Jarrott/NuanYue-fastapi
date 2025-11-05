@@ -17,6 +17,7 @@ import random
 import re
 import time
 import types
+from datetime import timedelta
 from importlib import import_module
 from collections import namedtuple
 from typing import Any, Callable, Dict, Union
@@ -167,3 +168,37 @@ def list_py_files(directory: str) -> list[str]:
                 py_files.append(os.path.join(root, f))
     return py_files
 
+
+def normalize_lang(lang: str | None) -> str:
+    if not lang:
+        return "en"
+
+    # en_US -> en, zh_CN -> zh ...
+    primary = lang.split("_")[0].lower()
+
+    # 我们支持的语言列表
+    # supported = {"en", "zh", "jp", "kr"}
+    return primary
+
+def parse_duration(value: str) -> timedelta:
+    """支持 30m / 1h / 7d / 3600s / 1800 格式"""
+    value = str(value).strip().lower()
+
+    units = {
+        "s": "seconds",
+        "m": "minutes",
+        "h": "hours",
+        "d": "days",
+    }
+
+    # 仅数字 = 默认秒
+    if value.isdigit():
+        return timedelta(seconds=int(value))
+
+    unit = value[-1]
+    amount = value[:-1]
+
+    if unit in units and amount.isdigit():
+        return timedelta(**{units[unit]: int(amount)})
+
+    raise ValueError(f"Invalid duration format: {value}. e.g. 30m / 1h / 7d / 3600")

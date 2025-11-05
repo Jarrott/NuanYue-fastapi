@@ -25,9 +25,8 @@ from functools import lru_cache
 from typing import Optional, Any, Dict
 from fastapi import FastAPI
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # ======================================================
 # 🔧 加载 .env 文件
@@ -66,9 +65,19 @@ class ExtraConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    secret: str = "Pedro-Core"
-    access_expires_in: int = 3600
-    refresh_expires_in: int = 1
+    secret: str = Field(default="3MqaL/AJgdaAfP2m+jUp4RQbr7lksY9kAZLQwUaX09c=")
+    access_expires_in: str = Field(default="1h")
+    refresh_expires_in: str = Field(default="7d")
+
+    @property
+    def access_timedelta(self):
+        from app.pedro.utils import parse_duration
+        return parse_duration(self.access_expires_in)
+
+    @property
+    def refresh_timedelta(self):
+        from app.pedro.utils import parse_duration
+        return parse_duration(self.refresh_expires_in)
 
 
 class RedisConfig(BaseModel):
@@ -92,6 +101,7 @@ class TencentTMTConfig(BaseModel):
 
 class TencentConfig(BaseModel):
     tmt: TencentTMTConfig = TencentTMTConfig()
+
 
 class FirebaseConfig(BaseModel):
     client_id: Optional[str] = None

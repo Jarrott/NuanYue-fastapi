@@ -17,6 +17,12 @@ from app.pedro.response import PedroResponse
 
 T = TypeVar("T")
 
+class ORMBase(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,  # ✅ 允许 ORM 转 Pydantic
+        arbitrary_types_allowed=True
+    )
+
 # =========================================================
 # ✅ 分页响应模型（含分页元信息）
 # =========================================================
@@ -132,3 +138,25 @@ class ProductDetailResponse(ProductResponse):
     reviews: Optional[list] = None
     shipping_info: Optional[str] = None
     warranty_info: Optional[str] = None
+
+class CategoryResponse(ORMBase):
+    id: int
+    name: str
+    # slug: Optional[str] = None
+    icon: Optional[str] = None
+
+class CategoryListResponse(ORMBase):
+    code: int = 2002
+    msg: str = "success"
+    data: List[CategoryResponse]
+
+class BannerResponse(ORMBase):
+    id: int
+    link: str
+    image: str
+    country: str
+
+class BannerListResponse(ORMBase):
+    msg: str = "success"
+    code: int = 2002
+    data: List[BannerResponse]

@@ -102,5 +102,7 @@ TTL_HANDLERS = {
 ## 使用cloudflared tunnel代理本地进行远程api测试
 ```python
 # cloudflared tunnel create nuanyue
+#  cloudflared tunnel route dns nuanyue api接口地址
+#  cloudflared tunnel run nuanyue
 # .....细节可以chatgpt 
 ```

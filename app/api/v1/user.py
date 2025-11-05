@@ -11,10 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import FileResponse
 
 from sqlalchemy import select
-from firebase_admin import auth as firebase_auth
+from firebase_admin import auth as firebase_auth, firestore
+from firebase_admin.firestore import firestore as fstore
 from sqlalchemy.util import await_only
 
+from app.extension.google_tools.firestore import fs_service
 from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
+from app.pedro.enums import KYCStatus
 from app.pedro.pedro_jwt import jwt_service, FirebaseAuthService
 
 from app.api.v1.schema.response import (
@@ -44,7 +47,7 @@ from app.api.v1.schema.user import (
     InformationUpdateSchema,
     RefreshTokenSchema,
     ForgotPasswordSendSchema,
-    ForgotPasswordResetSchema, ResetPasswordSendSchema
+    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema
 )
 
 from app.api.cms.model.user import User
@@ -52,6 +55,7 @@ from app.api.cms.model.user_group import UserGroup
 from app.pedro.response import PedroResponse
 from app.util.invite_services import assign_invite_code, bind_inviter_relation
 from app.extension.google_tools.rtdb_message import rtdb_msg
+from app.util.crypto import cipher
 
 rp = APIRouter(prefix="/user", tags=["用户"])
 settings = get_current_settings()
@@ -64,7 +68,7 @@ settings = get_current_settings()
 async def register_user(payload: UserRegisterSchema):
     # 用户名唯一性校验
     if await UserService.get_by_username(payload.username):
-        raise HTTPException(status_code=400, detail="用户名重复")
+        return SuccessResponse.fail(msg="用户重复!")
 
     await UserService.create_user_ar(
         username=payload.username,
@@ -73,7 +77,7 @@ async def register_user(payload: UserRegisterSchema):
         nickname=payload.nickname,
         group_ids=payload.group_ids,
     )
-    return SuccessResponse(msg="注册成功")
+    return SuccessResponse.success(msg="注册成功!")
 
 
 # ======================================================
@@ -85,10 +89,13 @@ async def login(data: LoginSchema, request: Request):
     用户登录并获取 Token
     """
     user = await UserService.get_by_username(data.username)
+
+    if data.password_encrypted:
+        data.password = cipher.decrypt(data.password)
     if not user:
-        raise HTTPException(status_code=401, detail="用户不存在")
+        return PedroResponse.fail(code=10020, msg="用户不存在")
     if not await user.verify_password(data.password):
-        raise HTTPException(status_code=401, detail="密码错误")
+        return PedroResponse.fail(code=10030, msg="密码错误")
 
     tokens = await jwt_service.after_login_security(user, request, data)
     firebase_tokens = await FirebaseAuthService.create_custom_token(user.id)
@@ -205,10 +212,12 @@ async def forgot_reset(data: ForgotPasswordResetSchema):
     await UserService.reset_password(data.email, data.code, data.new_password)
     return SuccessResponse.success(msg="密码重置成功")
 
+
 @rp.get("/reset/password")
 async def reset_password_html():
     file_path = settings.storage.h5_path + "/templates/h5/reset_password/index.html"
     return FileResponse(file_path)
+
 
 @rp.post("/reset/password")
 async def reset_password(request: Request, query: ResetPasswordSendSchema):
@@ -295,15 +304,22 @@ async def product_detail():
 
 
 @rp.get("/ads", name="轮播图")
-def ads():
+def ads1():
     pass
 
 
-@rp.get("/shops", name="商品列表")
-def ads():
-    pass
+@rp.post("/kyc", name="用户提交认证")
+async def kyc_apply(data: UserKycSchema, user = Depends(login_required)):
+    uid = user.id
 
+    # ✅ 写入 Firestore
+    await fs_service.set(
+        path=f"users/{uid}/kyc/info",
+        data=data.model_dump()
+    )
 
-@rp.get("/kyc", name="用户认证")
-def ads():
-    pass
+    # ✅ 更新 PGSQL Extra（标记 KYC 提交）
+    if data.status == "pending":
+        await user.set_extra(kyc_status=KYCStatus.PENDING.value)
+
+    return PedroResponse.success(msg="KYC验证已提交，请等待审核")

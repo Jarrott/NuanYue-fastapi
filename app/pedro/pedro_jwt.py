@@ -24,8 +24,8 @@ class JWTService:
         self.settings = get_current_settings()
         self.secret = self.settings.auth.secret
         self.algorithm = "HS256"
-        self.access_exp = timedelta(seconds=self.settings.auth.access_expires_in)
-        self.refresh_exp = timedelta(days=self.settings.auth.refresh_expires_in)
+        self.access_exp = self.settings.auth.access_timedelta
+        self.refresh_exp = self.settings.auth.refresh_timedelta
         tz_name = getattr(self.settings.app, "timezone", "UTC")
         try:
             self.timezone = ZoneInfo(tz_name)

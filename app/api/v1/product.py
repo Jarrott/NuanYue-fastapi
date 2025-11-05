@@ -22,6 +22,7 @@ async def product_list(
         keyword: str | None = None,
         category: str | None = None,
         brand: str | None = None,
+        featured: bool | None = None,
         order_by: str = "id",
         sort: str = "desc"
 ):
@@ -30,6 +31,7 @@ async def product_list(
         category=category,
         brand=brand,
         order_by=order_by,
+        featured=featured,
         sort=sort,
         page=page_query.page,
         size=page_query.size
@@ -40,7 +42,7 @@ async def product_list(
 
 
 @rp.get("/{product_id}", name="商品详情", response_model=ProductDetailResponse)
-async def product_detail(product_id: int,current_user=Depends(login_required)):
+async def product_detail(product_id: int, current_user=Depends(login_required)):
     row = await ShopProduct.get(id=product_id)
 
     if not row:
