@@ -160,3 +160,11 @@ class BannerListResponse(ORMBase):
     msg: str = "success"
     code: int = 2002
     data: List[BannerResponse]
+
+class StoreDetailResponse(ORMBase):
+    id: int
+    name: str
+    address: str
+    phone: str
+    email: str
+    logo: str

@@ -5,6 +5,7 @@ Pedro exception system - enhanced ExceptionGroup support
 import json
 import traceback
 import uuid
+import re
 from typing import Optional
 from fastapi import Request, logger
 from fastapi.responses import JSONResponse
@@ -92,7 +93,6 @@ async def build_error_response(request: Request, msg: str, error_code: int, http
     return JSONResponse(status_code=http_code, content=content)
 
 
-# ✅ 新增：安全错误消息函数（不暴露内部报错内容）
 def _safe_err_msg(exc: Exception) -> str:
     if isinstance(exc, APIException):
         return exc.msg
@@ -115,6 +115,25 @@ def register_exception_handlers(app):
     async def unhandled_exception_handler(request: Request, exc: Exception):
         trace_id = uuid.uuid4().hex[:8]
 
+        # ✅ Firestore 索引缺失检测
+        msg = str(exc)
+        if "The query requires an index" in msg:
+            match = re.search(r"(https://console\.firebase\.google\.com[^\s]+)", msg)
+            index_url = match.group(1) if match else None
+            pretty_msg = (
+                "🔥 Firestore 查询缺少索引，请点击以下链接在 Firebase Console 创建：\n\n"
+                f"{index_url}\n\n"
+                "📘 说明：此错误不会导致写入失败，但会影响查询结果。"
+            )
+            logger.logger.warning(f"[FirestoreIndexMissing] {pretty_msg}")
+            return await build_error_response(
+                request,
+                "Firestore 查询缺少索引，请在后台日志中查看一键创建链接。",
+                1999,
+                400,
+                trace_id,
+            )
+
         # ✅处理 ExceptionGroup / BaseExceptionGroup
         if isinstance(exc, BaseExceptionGroup) or type(exc).__name__.endswith("ExceptionGroup"):
             inner = exc.exceptions[0] if hasattr(exc, "exceptions") and exc.exceptions else exc
@@ -124,8 +143,6 @@ def register_exception_handlers(app):
 
             tb_str = "".join(traceback.format_exception(type(inner), inner, inner.__traceback__))
             logger.logger.error(f"[ExceptionGroup] TraceID={trace_id}\n{tb_str}")
-
-            # ✅ 不用 str(inner)，避免泄露内部信息
             return await build_error_response(request, _safe_err_msg(inner), 9999, 500, trace_id)
 
         # ✅ 普通异常 fallback
@@ -137,7 +154,6 @@ def register_exception_handlers(app):
 
     @app.middleware("http")
     async def websocket_origin_middleware(request, call_next):
-        # websocket 直接放行
         if request.headers.get("upgrade", "").lower() == "websocket":
             return await call_next(request)
         return await call_next(request)
@@ -145,8 +161,6 @@ def register_exception_handlers(app):
     @app.middleware("http")
     async def inject_request_path_middleware(request: Request, call_next):
         response = await call_next(request)
-
-        # 只处理 JSON 响应
         if "application/json" in response.headers.get("content-type", ""):
             try:
                 body = b""
@@ -157,7 +171,6 @@ def register_exception_handlers(app):
                 if isinstance(data, dict) and "request" in data:
                     data["request"] = request.url.path
                     new_body = json.dumps(data).encode()
-
                     return Response(
                         content=new_body,
                         status_code=response.status_code,
@@ -173,5 +186,4 @@ def register_exception_handlers(app):
                     )
             except:
                 pass
-
         return response

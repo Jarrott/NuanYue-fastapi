@@ -266,7 +266,7 @@ class UserKycSchema(BaseModel):
     # 联系方式
     contact_email: Optional[EmailStr] = Field(None, description="联系邮箱")
     contact_phone: Optional[str] = Field(None, description="联系电话")
-    status: str = Field(default="pending", description="认证状态")
+    status: int = Field(default=0, description="认证状态")
 
     # 可选备注
     remark: Optional[str] = Field("", description="备注，可输入审核说明")

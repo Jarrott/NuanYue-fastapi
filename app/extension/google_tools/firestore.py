@@ -4,10 +4,11 @@
 # @File    : firestore.py
 # @Software: PyCharm
 """
-from firebase_admin import firestore
-from firebase_admin.firestore import firestore as fs
+import asyncio
+from datetime import datetime
 from typing import Any, Dict
-import datetime
+from firebase_admin import firestore
+from app.extension.google_tools.firebase_admin_service import fs
 
 
 class FirestoreService:
@@ -17,45 +18,81 @@ class FirestoreService:
     @property
     def db(self):
         if not self._db:
-            from firebase_admin import firestore
             self._db = firestore.client()
         return self._db
 
     def _doc(self, path: str):
-        """支持 users/123/kyc/review 这种 path 自动节解析"""
+        """支持 users/123/kyc/review 这种 path 自动解析"""
         parts = path.split("/")
         doc = self.db.collection(parts[0]).document(parts[1])
         for i in range(2, len(parts), 2):
-            doc = doc.collection(parts[i]).document(parts[i+1])
+            doc = doc.collection(parts[i]).document(parts[i + 1])
         return doc
 
     @staticmethod
     def _add_timestamps(data: Dict[str, Any], create: bool = False):
-        now = fs.SERVER_TIMESTAMP
+        now = firestore.SERVER_TIMESTAMP
         if create:
-            data.setdefault("created_at", now)
-        data["updated_at"] = now
+            data.setdefault("create_time", now)
+        data["update_time"] = now
         return data
 
-    async def set(self, path: str, data: Dict[str, Any]):
-        """写入(覆盖)，自动设置创建 & 更新时间"""
+    # =====================================================
+    # ✅ 异步包装所有 Firestore 同步调用
+    # =====================================================
+    async def set(self, path: str, data: Dict[str, Any], merge: bool = False):
+        """写入(覆盖/合并)，自动设置创建 & 更新时间"""
         doc = self._doc(path)
-        data = self._add_timestamps(data, create=True)
-        return doc.set(data)
+        data = self._add_timestamps(data, create=not merge)
 
-    async def update(self, path: str, data: Dict[str, Any]):
-        """更新(merge)，只写入部分字段"""
+        def _do_set():
+            doc.set(data, merge=merge)
+
+        return await asyncio.to_thread(_do_set)
+
+    async def update(self, path: str, data: Dict[str, Any], merge: bool = True):
+        """更新(默认 merge=True)，只写入部分字段"""
         doc = self._doc(path)
         data = self._add_timestamps(data)
-        return doc.set(data, merge=True)
+
+        def _do_update():
+            doc.set(data, merge=merge)
+
+        return await asyncio.to_thread(_do_update)
 
     async def get(self, path: str):
         doc = self._doc(path)
-        snap = doc.get()
-        return snap.to_dict() if snap.exists else None
+
+        def _normalize_firestore_data(data):
+            """递归转换 Firestore 中的 DatetimeWithNanoseconds"""
+            from datetime import datetime
+
+            if isinstance(data, dict):
+                return {k: _normalize_firestore_data(v) for k, v in data.items()}
+            elif isinstance(data, list):
+                return [_normalize_firestore_data(v) for v in data]
+            elif isinstance(data, datetime):
+                return data.isoformat()
+            else:
+                return data
+
+        def _do_get():
+            snap = doc.get()
+            if not snap.exists:
+                return None
+            data = snap.to_dict()
+            return _normalize_firestore_data(data)
+
+        return await asyncio.to_thread(_do_get)
 
     async def delete(self, path: str):
         doc = self._doc(path)
-        return doc.delete()
 
+        def _do_delete():
+            doc.delete()
+
+        return await asyncio.to_thread(_do_delete)
+
+
+# ✅ 实例化单例
 fs_service = FirestoreService()

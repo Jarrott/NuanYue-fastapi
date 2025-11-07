@@ -118,6 +118,16 @@ class JWTService:
         now = datetime.now(self.timezone)
         scopes = ["admin"] if await user.is_admin() else ["user"]
 
+        # ✅ 检查用户是否启用设备锁
+        require_lock = getattr(user.extra, "device_lock", False)
+        fp = None
+
+        if require_lock:
+            request = self.settings.current_request  # 自动从中间件注入
+            ua = request.headers.get("User-Agent", "")
+            ip = request.client.host
+            fp = self.make_fingerprint(ua, ip)
+
         r = await rds.instance()
         version_key = f"user:{user.id}:version"
         version = await r.get(version_key)
@@ -131,6 +141,7 @@ class JWTService:
             "ver": int(version),
             "scope": scopes,
             "iat": now,
+            "fp": fp,
             "exp": now + self.access_exp,
             "type": "access",
         }
@@ -139,6 +150,7 @@ class JWTService:
             "ver": int(version),
             "scope": scopes,
             "iat": now,
+            "fp": fp,
             "exp": now + self.refresh_exp,
             "type": "refresh",
         }
@@ -267,6 +279,29 @@ class JWTService:
         redis_ver = await r.get(f"user:{uid}:version")
         if redis_ver and int(redis_ver) != ver:
             raise UnAuthentication("Token 已失效（版本不匹配）")
+
+        # ✅ 用户是否要求设备锁
+        # ✅ 读取设备锁开关
+        raw = await r.get(f"user:{uid}:device_lock")
+        require_lock = raw == b"1"
+
+        if require_lock:
+            token_fp = payload.get("fp")
+            ua = request.headers.get("User-Agent", "")
+            ip = request.client.host
+            current_fp = self.make_fingerprint(ua, ip)
+
+            if token_fp != current_fp:
+                raise UnAuthentication("⚠️ 设备变更，需要验证设备")
+
+        if require_lock:
+            token_fp = payload.get("fp")
+            ua = request.headers.get("User-Agent", "")
+            ip = request.client.host
+            current_fp = self.make_fingerprint(ua, ip)
+
+            if token_fp != current_fp:
+                raise UnAuthentication("⚠️ 设备变更，需要验证设备")
 
         # ✅（可选）风控：若传 request，检测 IP/UA 变化
         if request:

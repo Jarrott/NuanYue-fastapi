@@ -5,10 +5,10 @@
 # @Software: PyCharm
 """
 import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import auth
+from firebase_admin import credentials, firestore, db, auth
 
 from app.config.settings_manager import get_current_settings
+
 
 # ✅ Firebase Admin 初始化（仅执行一次）
 def init_firebase_admin():
@@ -23,3 +23,18 @@ def init_firebase_admin():
 
         print("✅ Firebase Admin SDK 已初始化（含 Realtime DB）")
 
+        # ✅ 返回实例对象
+        return {
+            "firestore": firestore.client(),
+            "auth": auth,
+            "rtdb": db
+        }
+
+
+# ======================================================
+# ✅ 实例化客户端，供外部 import
+# ======================================================
+_clients = init_firebase_admin()
+fs = _clients["firestore"]  # Firestore client 实例
+fauth = _clients["auth"]  # Firebase Auth 实例
+rtdb = _clients["rtdb"]  # Realtime Database 实例

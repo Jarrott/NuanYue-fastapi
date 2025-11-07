@@ -1,0 +1,89 @@
+# ====================================================
+# 🌱 开发环境配置文件（dev.env）
+# 用于本地开发调试，可安全提交到仓库
+# ====================================================
+
+# 环境标识（对应 dev.yaml / prod.yaml 等）
+APP_ENV=development
+
+# 应用基础信息
+APP_NAME=Pedro-Core
+APP_VERSION=0.1.0
+APP_DESCRIPTION=Pedro CMS built on FastAPI
+
+# 是否启用调试模式
+DEBUG=True
+
+# 日志等级
+LOG_LEVEL=DEBUG
+
+# ====================================================
+# 🔐 安全相关配置
+# ====================================================
+JWT_SECRET=dev-secret-key
+JWT_ALGORITHM=HS256
+ACCESS_EXPIRES=3600
+
+# 管理员账号（仅本地使用）
+ADMIN_EMAIL=admin@pedro.dev
+ADMIN_PASSWORD=123456
+
+# ====================================================
+# 🧩 数据库配置
+# ====================================================
+# SQLite 本地开发数据库（推荐）
+DATABASE_URL=sqlite+aiosqlite:///./dev.db
+# PostgreSQL 示例（需要时可替换）
+# DATABASE_URL=postgresql://user:password@localhost:5432/pedro_dev
+
+# ====================================================
+# 📨 邮件/通知服务（可选）
+# ====================================================
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=pedro_dev@gmail.com
+MAIL_PASSWORD=app-password
+MAIL_FROM=Pedro CMS Dev
+MAIL_TLS=True
+
+# ====================================================
+# 🌐 CORS / API 地址
+# ====================================================
+API_PREFIX=/api/v1
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+# ====================================================
+# 🧠 插件/扩展配置（可选）
+# ====================================================
+SOCKETIO_REDIS_URL=redis://localhost:6379/0
+CACHE_BACKEND=redis
+
+# 腾讯tmt翻译
+TENCENT_SECRET_ID=
+TENCENT_SECRET_KEY=
+
+# redis 默认配置
+REDIS_PASSWORD=
+REDIS_URL=redis://:redispw@localhost:55000
+
+RABBITMQ_URL=
+
+# firebase的配置
+
+GOOGLE_PROJECT_ID=
+GOOGLE_CLIENT_ID=
+GOOGLE_SERVICE_ACCOUNT_PATH=
+GOOGLE_DATABASE_URL=
+UNSPLASH_ACCESS_KEY=
+
+# 采集商品信息的时候设置的上传路径
+BANNERS_PATH=
+# Fastapi返回template时候的h5路径
+H5_PATH=
+
+AES_KEY=
+AES_IV=
+
+# JWT 过期时间 1s 秒 1m 分钟 1h 小时 1d 天
+ACCESS_EXPIRES_IN=1h
+REFRESH_EXPIRES_IN=7d

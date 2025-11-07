@@ -69,7 +69,6 @@ class Manager:
         ).where(self.user_group_model.user_id == user_id)
 
         # ✅ 打印完整 SQL（带绑定值）
-        print("[DEBUG SQL]", stmt.compile(compile_kwargs={"literal_binds": True}))
 
         result = await session.execute(stmt)
         return result.scalar_one_or_none()

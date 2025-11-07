@@ -2,7 +2,7 @@ import time
 from firebase_admin import db
 from app.extension.google_tools.rtdb import FirebaseRTDB
 from app.extension.redis.redis_client import rds
-from app.api.v1.services.wallet_sync_service import WalletSyncService
+from app.api.cms.services.wallet.wallet_sync_service import WalletSyncService
 from app.api.v1.model.deposit import Deposit, DepositTypeEnum, DepositStatusEnum
 
 

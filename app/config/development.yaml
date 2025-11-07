@@ -130,6 +130,7 @@ extra:
     settings:
       theme: "light"         # UI主题
       lang: "en-US"          # 默认语言
+      device_lock: false
 
     referral:
       inviter_id: null       # 邀请者ID
@@ -157,9 +158,9 @@ google:
 qiniu:
   provider: qiniu
   bucket: "uupp"
-  access_key: "pXGaTVOeM-psbf_nw0hftAvqnMkOCdjFEJVUlKDq"
-  secret_key: "_giPlnkbEuxLDDqUgRquXsqJC8qsk7twx4e1Ptdq"
-  cdn: "https://up.qi-yue.vip"
+  access_key: ${QINIU_ACCESS_KEY}
+  secret_key: ${QINIU_SECRET_KEY}
+  cdn: ${QINIU_CDN}
 
 aes:
   secret: ${AES_KEY}

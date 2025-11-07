@@ -76,8 +76,7 @@ class ShopProduct(InfoCrud):
             shipping_info=data.get("shippingInformation"),
             warranty_info=data.get("warrantyInformation"),
             source="dummyjson",
-            lang=data.get("lang", "en"),
-            updated_at=datetime.utcnow(),
+            lang=data.get("lang", "en")
         )
 
         async with get_session() as session:

@@ -8,25 +8,30 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ 支持会员开通、签到、邀请关系树
 """
 import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.params import Query
 
 from app.api.cms.model import User
-from app.api.cms.schema.admin import AdminDepositSchema, AdminBroadcastSchema, FirebaseCreateUserSchema, KYCReviewSchema
-from app.api.cms.services.deposit_approve_service import DepositApproveService
+from app.api.cms.schema.admin import AdminDepositSchema, AdminBroadcastSchema, FirebaseCreateUserSchema, \
+    KYCReviewSchema, ManualCreditSchema
+from app.api.cms.services.admin_ledger_service import AdminLedgerService
 from app.api.cms.services.firebase_admin_service import FirebaseAdminService
+from app.api.cms.services.user_wallet_service import AdminWalletService
 from app.api.v1.schema.response import SuccessResponse
+from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
+from app.api.cms.services.wallet.wallet_sync_service import WalletSyncService
 from app.extension.google_tools.firestore import fs_service
 from app.extension.redis.redis_client import rds
 from app.extension.websocket.tasks.ws_user_notify import notify_user, notify_broadcast
-from app.extension.websocket.wss import websocket_manager
 
 from app.config.settings_manager import get_current_settings
 from app.pedro.enums import KYCStatus
 from app.pedro.pedro_jwt import admin_required, jwt_service
 from app.pedro.response import PedroResponse
 
-rp = APIRouter(prefix="/admin", tags=["用户"])
+rp = APIRouter(prefix="/admin", tags=["管理员"])
 settings = get_current_settings()
 
 
@@ -52,31 +57,114 @@ async def broadcast_user_message(uid: int):
     return SuccessResponse.success(msg="信息已成功推送")
 
 
-@rp.post("/force_logout/{uid}")
-async def force_logout(uid: int):
+@rp.post("/force_logout/{uid}", name="踢出违规用户")
+async def force_logout(uid: int, admin=Depends(admin_required)):
     logout = await jwt_service.bump_version(uid)
     if not logout:
-        return SuccessResponse(msg="没有成功")
-    return SuccessResponse(msg="已强制踢出")
+        return SuccessResponse.fail(msg="没有成功")
+    return SuccessResponse.success(msg="已强制踢出")
 
 
-@rp.post("/approve/deposit", response_model=SuccessResponse)
+@rp.post("/manual/credit", name="后台手动（入账）", dependencies=[Depends(admin_required)])
+async def manual_credit(data: ManualCreditSchema, admin=Depends(admin_required)):
+    # 管理员手动充值
+    result = await AdminWalletService.manual_credit(
+        uid=data.user_id,
+        amount=data.amount,
+        reason="活动奖励",
+        admin_user="root",
+        l_type="credit",
+    )
+    return result
+
+
+@rp.post("/approve/deposit", name="管理员审核充值", response_model=PedroResponse)
 async def admin_deposit(payload: AdminDepositSchema, admin=Depends(admin_required)):
-    await DepositApproveService.admin_deposit(
-        user_id=payload.user_id,
+    """
+    ✅ 后台审核充值通过后入账
+    - Firestore 原子入账
+    - Ledger 可追溯
+    - PostgreSQL 同步
+    - RTDB 实时余额更新
+    - 通知用户
+    """
+
+    reference = f"deposit:{payload.order_no}"
+
+    uid = str(payload.user_id)
+
+    # 1️⃣ 安全入账
+    result = await WalletSecureService.credit_wallet_admin(
+        uid=uid,
         amount=payload.amount,
-        remark="订单审核通过",
-        admin_user=admin,
-        order_no=payload.order_no
+        operator_id=admin.username,  # ✅ 正确字段名
+        reference=reference,
+        type="deposit_approve",  # ✅ 可传入操作类型（如充值审核通过）
+        remark="充值审核通过",  # ✅ 可作为 Ledger 备注
     )
 
+    # 2️⃣ Firestore 入账完成后，异步同步 RTDB（保险起见再同步一次）
+    if result and isinstance(result, dict) and result.get("status") == "ok":
+        balance_after = result.get("balance_after")
+        # 异步同步，不阻塞主线程
+        import asyncio
+        asyncio.create_task(WalletSyncService.sync_balance(payload.user_id, balance_after))
+
+    # 3️⃣ 发送 WebSocket 通知给用户（充值成功）
     await notify_user(payload.user_id, {
         "event": "wallet_recharge_success",
         "amount": payload.amount,
         "msg": f"充值成功：${payload.amount}"
     })
 
-    return SuccessResponse(msg="管理员充值成功")
+    return PedroResponse.success(
+        msg=f"充值成功：${payload.amount} USD 已入账",
+        # data=result
+    )
+
+
+@rp.post("/wallet/manual-debit", name="管理员手动（扣款）")
+async def manual_debit(payload: ManualCreditSchema, admin=Depends(admin_required)):
+    """
+    管理员手动下分接口
+    """
+    # 管理员手动扣款
+    res = await AdminWalletService.manual_debit(
+        uid=payload.user_id,
+        amount=payload.amount,
+        reason="违规行为处罚" if payload.reason is None else payload.reason,
+        admin_user="root",
+    )
+    return PedroResponse.success(msg="扣款成功")
+
+
+@rp.get("/ledger/list", name="平台出入账列表（按 ledger 聚合）")
+async def list_ledger(
+        limit: int = Query(50, ge=1, le=200),
+        page_token: Optional[str] = None,
+        uid: Optional[str] = None,
+        l_type: Optional[str] = Query(None, description="income/debit/withdraw/fee..."),
+        start: Optional[str] = Query(None, description="ISO8601，例如 2025-11-07T00:00:00Z"),
+        end: Optional[str] = Query(None, description="ISO8601"),
+        reference_prefix: Optional[str] = None,
+        _=Depends(admin_required),
+):
+    dt_start = datetime.datetime.fromisoformat(start.replace("Z", "+00:00")) if start else None
+    dt_end = datetime.datetime.fromisoformat(end.replace("Z", "+00:00")) if end else None
+
+    rows, next_token = AdminLedgerService.list_platform_ledger(
+        limit=limit,
+        page_token=page_token,
+        uid=uid,
+        l_type=l_type,
+        start=dt_start,
+        end=dt_end,
+        reference_prefix=reference_prefix,
+    )
+    return PedroResponse.success(data={
+        "items": rows,
+        "next_page_token": next_token
+    })
 
 
 @rp.get("/ws/online/count")
@@ -125,7 +213,7 @@ async def create_firebase_user(data: FirebaseCreateUserSchema):
 
 
 @rp.put("/kyc/review", name="审核KYC内容")
-async def review_kyc(data: KYCReviewSchema, admin = Depends(admin_required)):
+async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     uid = data.user_id
 
     # ✅ Firestore 更新审核记录

@@ -33,6 +33,7 @@
 ```python
 poetry install # 安装依赖
 
+# 项目创建后先将init_env_base.default改成.env
 ```
 
 ## 插件使用

@@ -309,7 +309,7 @@ def ads1():
 
 
 @rp.post("/kyc", name="用户提交认证")
-async def kyc_apply(data: UserKycSchema, user = Depends(login_required)):
+async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
     uid = user.id
 
     # ✅ 写入 Firestore
@@ -319,7 +319,9 @@ async def kyc_apply(data: UserKycSchema, user = Depends(login_required)):
     )
 
     # ✅ 更新 PGSQL Extra（标记 KYC 提交）
-    if data.status == "pending":
+    if data.status == KYCStatus.PENDING.value:
         await user.set_extra(kyc_status=KYCStatus.PENDING.value)
 
     return PedroResponse.success(msg="KYC验证已提交，请等待审核")
+
+
