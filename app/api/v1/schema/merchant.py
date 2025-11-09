@@ -6,6 +6,8 @@
 """
 import datetime
 from typing import Optional, List, Dict
+
+from fastapi import Query
 from pydantic import BaseModel, Field, EmailStr
 
 
@@ -49,6 +51,10 @@ class LogsQuery(BaseModel):
     page: int = 1
     size: int = 20
 
+class PageQuery(BaseModel):
+    limit:int = 10
+    page: int = Field(default=1, ge=1, description="分页页码")
+    size: int = Field(default=10, ge=1, le=100, description="每页条数")
 
 class CreateStoreSchema(BaseModel):
     address: str = None

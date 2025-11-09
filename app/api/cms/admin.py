@@ -14,10 +14,17 @@ from fastapi import APIRouter, Depends
 from fastapi.params import Query
 
 from app.api.cms.model import User
-from app.api.cms.schema.admin import AdminDepositSchema, AdminBroadcastSchema, FirebaseCreateUserSchema, \
-    KYCReviewSchema, ManualCreditSchema
+from app.api.cms.schema.admin import (
+    AdminDepositSchema,
+    AdminBroadcastSchema,
+    FirebaseCreateUserSchema,
+    KYCReviewSchema,
+    ManualCreditSchema,
+    MockCreateOrderSchema)
+
 from app.api.cms.services.admin_ledger_service import AdminLedgerService
 from app.api.cms.services.firebase_admin_service import FirebaseAdminService
+from app.api.cms.services.orders.mock_order_service import MockOrderService
 from app.api.cms.services.user_wallet_service import AdminWalletService
 from app.api.v1.schema.response import SuccessResponse
 from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
@@ -233,4 +240,13 @@ async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
 
     return PedroResponse.success(
         msg=f"KYC审核{'通过' if data.approve else '拒绝'}"
+    )
+
+
+@rp.post("/mock/orders")
+async def mock_orders(data: MockCreateOrderSchema):
+    return await MockOrderService.simulate_orders(
+        merchant_id=str(data.merchant_id),
+        user_count=data.user_count,
+        per_user=data.per_user,
     )

@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
+from app.api.v1.model.virtual_users import VirtualUser
 from app.api.v1.schema.response import HotCryptoResponse
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.api.v1.schema.spider import CryptoAssetSchema
@@ -23,10 +24,11 @@ from app.pedro.exception import NotFound, Success
 # from app.api.v1.schema.product import ShopProductListSchema
 # from app.api.v1.schema.paging import PagingSchema
 from app.api.v1.services.shop_product_service import ProductCollectorService
+from app.pedro.response import PedroResponse
 
 # from app.api.v1.validator.crypto_assets_service import CryptoCollectorService
 
-rp = APIRouter(prefix="/spider", tags=["商品模块"],include_in_schema=False)
+rp = APIRouter(prefix="/spider", tags=["商品模块"], include_in_schema=False)
 
 
 # ======================================================
@@ -99,7 +101,7 @@ async def collect_crypto_assets(limit: int = Query(default=100, description="采
     raise Success("虚拟货币信息采集成功")
 
 
-@rp.get("/crypto/hot", summary="热门虚拟货币列表",response_model=list[CryptoAssetSchema])
+@rp.get("/crypto/hot", summary="热门虚拟货币列表", response_model=list[CryptoAssetSchema])
 async def get_hot_assets(limit: int = Query(20, description="返回数量")):
     async with get_session() as session:
         result = await session.execute(
@@ -112,7 +114,7 @@ async def get_hot_assets(limit: int = Query(20, description="返回数量")):
         return assets
 
 
-@rp.get("/crypto/trending", summary="趋势榜虚拟货币列表",response_model=HotCryptoResponse)
+@rp.get("/crypto/trending", summary="趋势榜虚拟货币列表", response_model=HotCryptoResponse)
 async def get_trending_assets(limit: int = Query(20, description="返回数量")):
     async with get_session() as session:
         result = await session.execute(
@@ -122,8 +124,6 @@ async def get_trending_assets(limit: int = Query(20, description="返回数量")
             .limit(limit)
         )
         return result.scalars().all()
-
-
 
 
 # banners采集
@@ -137,6 +137,7 @@ keywords = {
     "us": ["usa business banner", "new york skyline"],
     "kr": ["korea seoul banner", "seoul skyline"],
 }
+
 
 async def fetch_images(query: str, per_page: int = 5):
     url = "https://api.unsplash.com/search/photos"
@@ -200,3 +201,11 @@ async def api_download_banners(limit: int = Query(3, ge=1, le=10)):
     """
     res = await crawl_banners(limit)
     return res
+
+
+@rp.get("/virtual/users")
+async def get_virtual_users():
+    add = await VirtualUser.email
+    if add:
+        return PedroResponse.success(data=add)
+    return False

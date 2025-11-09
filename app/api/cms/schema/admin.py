@@ -72,3 +72,9 @@ class ManualDebitSchema(BaseModel):
         except (InvalidOperation, TypeError):
             raise ValueError("无效金额格式，必须为数字类型")
         return v
+
+class MockCreateOrderSchema(BaseModel):
+    """管理员手动扣款参数"""
+    merchant_id: int = Field(..., description="商户ID")
+    per_user: int = Field(..., description="每个mock下单的数量")
+    user_count: int = Field(..., gt=0, description="下单用户数量")

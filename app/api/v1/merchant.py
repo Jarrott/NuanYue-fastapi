@@ -4,12 +4,19 @@
 # @File    : merchant.py
 # @Software: PyCharm
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Body
+from google.cloud.firestore_v1 import _helpers
 
 from app.api.cms.model import User
-from app.api.v1.schema.merchant import MerchantProfile, WalletVO, WithdrawCreate, LogsQuery, CreateStoreSchema, \
-    PurchaseSchema
+from app.api.v1.schema.merchant import (MerchantProfile,
+                                        WalletVO,
+                                        WithdrawCreate,
+                                        LogsQuery,
+                                        CreateStoreSchema,
+                                        PurchaseSchema, PageQuery)
+
 from app.api.v1.schema.response import StoreDetailResponse
+from app.api.v1.services.store_order_service import RestockService
 from app.api.v1.services.store_service import MerchantService
 from app.extension.google_tools.firestore import fs_service
 from app.extension.redis.redis_client import rds
@@ -126,25 +133,101 @@ async def logs(query: LogsQuery, user=Depends(login_required)):
     )
     return PedroResponse.page(items=items, total=len(items), page=query.page, size=query.size)
 
-@rp.post("/", name="统一采购接口（支持单/批量）")
-async def purchase(data: PurchaseSchema, user=Depends(login_required)):
+
+# ====================================================
+# 🧾 批量采购（后台或商家操作）
+# ====================================================
+@rp.post("/purchase")
+async def purchase_items(data: PurchaseSchema, user=Depends(login_required)):
+    return await MerchantService.purchase_batch(user.id, data.items)
+
+
+# ====================================================
+# 📜 查询采购列表（商家端前台）
+# ====================================================
+@rp.get("/purchases", summary="查询采购记录（分页）")
+async def list_purchases(
+        page: int = Query(default=1, ge=1),
+        size: int = Query(default=20, ge=1, le=100),
+        user=Depends(login_required)
+):
+    docs = await MerchantService.list_purchase_batches(user.id, size)
+
+    def normalize(obj):
+        from google.cloud.firestore_v1 import _helpers
+        if isinstance(obj, _helpers.DatetimeWithNanoseconds):
+            return obj.isoformat()
+        if isinstance(obj, dict):
+            return {k: normalize(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [normalize(v) for v in obj]
+        return obj
+
+    data = [normalize(doc) for doc in docs]
+
+    # ✅ PedroResponse.page 需要: page, size, total, items
+    return PedroResponse.page(
+        page=page,
+        size=size,
+        total=len(data),
+        items=data
+    )
+
+
+# ====================================================
+# 🔍 查询采购详情
+# ====================================================
+@rp.get("/purchase/{batch_id}")
+async def purchase_detail(uid: str, batch_id: str):
+    return await MerchantService.get_purchase_batch_detail(uid, batch_id)
+
+
+# ✅ 原采购逻辑
+@rp.post("/{uid}/purchase/batch")
+async def merchant_purchase(uid: str, body: dict = Body(...)):
+    return await MerchantService.purchase_batch(uid, body["items"])
+
+
+# =========================================================
+# ✅ 查询缺货订单（分页）
+# =========================================================
+@rp.get("/restock/orders")
+async def get_need_purchase_orders(
+    uid: str = Query(..., description="商户ID"),
+    page: int = Query(1, description="页码", ge=1),
+    size: int = Query(20, description="每页大小", le=100),
+):
     """
-    如果传入 product_id 和 quantity → 走单商品采购；
-    如果传入 items 数组 → 走批量采购；
-    如果两者都有 → 优先 items。
+    🔍 获取商户缺货订单列表
+    - 支持分页（Firestore startAfter 游标）
     """
-    uid = str(user.id)
+    orders, next_cursor = await RestockService.list_need_purchase_orders_paged(uid, limit=size)
+    return PedroResponse.page(
+        msg=f"找到 {len(orders)} 个缺货订单",
+        items=orders,
+        total=len(orders),
+        page=page,
+        size=size,
+        cursor=next_cursor,
+    )
 
-    # ✅ 批量采购优先
-    if data.items:
-        return await MerchantService.purchase_batch(uid=uid, items=data.items)
 
-    # ✅ 单商品采购
-    if data.product_id and data.quantity:
-        return await MerchantService.purchase_single(
-            uid=uid,
-            product_id=data.product_id,
-            quantity=data.quantity
-        )
-
-    return PedroResponse.fail(msg="参数错误：请传入 (product_id, quantity) 或 items[]")
+# =========================================================
+# ✅ 一键补货（自动扣款 + 更新库存 + Firestore 同步）
+# =========================================================
+@rp.post("/restock/auto")
+async def auto_restock(user=Depends(login_required)):
+    """
+    💰 一键补货
+    - 自动计算所有 need_purchase 订单
+    - 按 price/discount/rating 动态定价
+    - 扣除钱包金额
+    - 更新 Firestore / RTDB
+    - 订单状态变更为 pending
+    """
+    try:
+        result = await RestockService.restock_all(user.id)
+        return result
+    except Exception as e:
+        print(f"[❌ Auto Restock Error] {e}")
+        return PedroResponse.fail(msg=f"补货失败：{e}")

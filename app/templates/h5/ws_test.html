@@ -43,7 +43,7 @@ button:hover {background:#2b3344;}
 
 <div class="row">
  地址:
- <input id="url" style="width:350px;" value="ws://localhost:5001/v1/ws">
+ <input id="url" style="width:350px;" value="wss://api-test.qi-yue.vip/v1/ws/user">
  <button onclick="connectWS()">连接</button>
  <button onclick="closeWS()">断开</button>
 </div>
@@ -136,10 +136,10 @@ function connectWS(){
             }
 
             // ✅ 行情 (ticker)
-            if(data.type === "ticker"){
-                log("tickerLog", `${data.symbol} ${data.close}`);
-                return;
-            }
+            // if(data.type === "ticker"){
+            //     log("tickerLog", `${data.symbol} ${data.close}`);
+            //     return;
+            // }
 
         }catch(err){
             log("sysLog","⚠ JSON 解析失败 "+e.data);
