@@ -82,7 +82,7 @@ class LoginSchema(BaseModel):
     password: str = Field(description="密码")
     captcha: Optional[str] = Field(description="验证码", default=None)
     remember_me: str = Field(description="是否信任此设备", default="false")
-    password_encrypted: bool = Field(default=False,description="用户登录密码是否明文传入")
+    password_encrypted: bool = Field(default=False, description="用户登录密码是否明文传入")
 
 
 class LoginTokenSchema(BaseModel):
@@ -223,13 +223,16 @@ class InformationUpdateSchema(BaseModel):
     gender: Optional[int] = None
     birthday: Optional[str] = None
 
+
 class ForgotPasswordSendSchema(BaseModel):
     email: Optional[str] = None
+
 
 class ForgotPasswordResetSchema(BaseModel):
     email: Optional[str] = None
     code: Optional[str] = None
     new_password: Optional[str] = None
+
 
 class ResetPasswordSendSchema(BaseModel):
     email: Optional[str] = None
@@ -239,9 +242,9 @@ class ResetPasswordSendSchema(BaseModel):
 
 class PageQuery:
     def __init__(
-        self,
-        page: int = Query(1, ge=1),
-        size: int = Query(10, ge=1, le=100)
+            self,
+            page: int = Query(1, ge=1),
+            size: int = Query(10, ge=1, le=100)
     ):
         self.page = page
         self.size = size
@@ -271,3 +274,21 @@ class UserKycSchema(BaseModel):
     # 可选备注
     remark: Optional[str] = Field("", description="备注，可输入审核说明")
 
+
+class ToggleSchema(BaseModel):
+    product_id: int = None
+
+
+class CreateShopSchema(BaseModel):
+    product_id: int = None
+    amount: float = None
+    quantity: int = None
+
+class StoreSchema(BaseModel):
+    address: Optional[str] = None
+    lang: Optional[str] = None
+    email: Optional[str] = None
+    avatar: Optional[str] = None
+    level: Optional[str] = None
+    logo: Optional[str] = None
+    store_name:Optional[str] = None

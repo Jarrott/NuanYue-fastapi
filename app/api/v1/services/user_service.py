@@ -27,6 +27,7 @@ class UserService:
             inviter_code: str | None = None,
             group_ids: list[int] | None = None,
             nickname: str | None = None,
+            itu:int | None = None,
     ) -> User:
         """
         使用模型自带的 Active Record 方法，不传 session。
@@ -46,6 +47,9 @@ class UserService:
         await assign_invite_code(user)
         if inviter_code:
             await bind_inviter_relation(user, inviter_code)
+
+
+
 
         # 3) 分组绑定
         gids = group_ids or [GroupLevelEnum.USER.value]

@@ -31,9 +31,7 @@ async def product_list(
         order_by: str = "id",
         sort: str = "desc",
 ):
-    test = await ShopProduct.get(featured=featured, one=False)
 
-    print(test)
     items, total = await ProductService.list_products(
         keyword=keyword,
         category=category,

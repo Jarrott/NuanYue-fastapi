@@ -18,7 +18,9 @@ from firebase_admin.firestore import firestore
 from sqlalchemy import select, update
 from sqlalchemy.orm import load_only
 
-from app.extension.google_tools.firestore import fs_service as fs
+from app.extension.google_tools.firebase_admin_service import fs
+from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP
+
 from app.api.v1.model.shop_product import ShopProduct
 from app.pedro.db import async_session_factory
 from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
@@ -26,6 +28,40 @@ from app.pedro.response import PedroResponse
 
 
 class MerchantService:
+    @staticmethod
+    async def create_merchant(
+            uid: str,
+            name: str = None,
+            email: str = None,
+            address: str = None,
+            logo: str = None,
+            lang: str = None
+    ):
+        """
+        🏪 创建商家档案 (Firestore)
+        路径: users/{uid}/store/profile
+        """
+
+        store_ref = fs.document(f"users/{uid}/store/profile")
+
+        data = {
+            "store_id": uuid.uuid4().hex,
+            "store_name": name or "Unnamed Store",
+            "email": email,
+            "lang": lang or "en",
+            "address": address,
+            "logo": logo,
+            "status": "pending",
+            "verify_badge": False,
+            "level": "bronze",
+            "create_time": SERVER_TIMESTAMP,
+            "update_time": SERVER_TIMESTAMP,
+        }
+
+        store_ref.set(data, merge=True)
+        print(f"✅ Firestore: Created merchant profile for user {uid}")
+
+        return PedroResponse.success(msg="申请开通店铺成功")
 
     # ==============================================================
     # 📦 批量采购（Firestore 事务 + SQL 同步）

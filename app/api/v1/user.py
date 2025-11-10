@@ -7,7 +7,7 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ JWT 登录认证
 ✅ 支持会员开通、签到、邀请关系树
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query, Body
 from fastapi.responses import FileResponse
 
 from sqlalchemy import select
@@ -15,6 +15,8 @@ from firebase_admin import auth as firebase_auth, firestore
 from firebase_admin.firestore import firestore as fstore
 from sqlalchemy.util import await_only
 
+from app.api.v1.model.shop_product import ShopProduct
+from app.api.v1.services.fs.favorite_service import FavoriteServiceFS
 from app.extension.google_tools.firestore import fs_service
 from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
 from app.pedro.enums import KYCStatus
@@ -47,7 +49,7 @@ from app.api.v1.schema.user import (
     InformationUpdateSchema,
     RefreshTokenSchema,
     ForgotPasswordSendSchema,
-    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema
+    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema, ToggleSchema
 )
 
 from app.api.cms.model.user import User
@@ -257,8 +259,6 @@ async def diagnose(request: Request, tz: str = Query(None)):
     }
 
 
-
-
 @rp.get("/push/message", name="推送信息给客服")
 async def broadcast_system_announcement():
     await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
@@ -294,3 +294,15 @@ async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
     return PedroResponse.success(msg="KYC验证已提交，请等待审核")
 
 
+@rp.post("/toggle", name="喜欢的商品")
+async def toggle_favorite(data:ToggleSchema,user=Depends(login_required)):
+    product = await ShopProduct.get(id=data.product_id)
+
+    if not product:
+        return PedroResponse.fail(msg="没有找到数据")
+    return await FavoriteServiceFS.toggle(user.id, product.to_dict())
+
+
+@rp.get("/toggle/list", name="喜欢的商品列表")
+async def get_favorites(user=Depends(login_required)):
+    return await FavoriteServiceFS.list(user.id, limit=20)
