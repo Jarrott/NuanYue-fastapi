@@ -48,7 +48,7 @@ class FirestoreTransactionHelper:
 
             balance_after = await asyncio.to_thread(_read_wallet)
             await WalletSecureService._sync_balance(uid, balance_after)
-            print(f"[SYNC] ✅ 用户 {uid} 余额同步成功 balance_after={balance_after}")
+            # print(f"[SYNC] ✅ 用户 {uid} 余额同步成功 balance_after={balance_after}")
         except Exception as e:
             print(f"[WARN] ⚠️ 同步余额失败: {e}")
 

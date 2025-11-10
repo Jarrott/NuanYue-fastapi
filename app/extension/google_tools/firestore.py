@@ -93,6 +93,31 @@ class FirestoreService:
 
         return await asyncio.to_thread(_do_delete)
 
+    # ✅ 新增通用安全 update 方法
+    async def safe_update(self, path: str, data: dict):
+        """
+        🔄 安全更新 Firestore 文档（自动获取 DocumentReference）
+        - 如果文档不存在则创建
+        - 不会抛出 'Client has no attribute update' 错误
+        """
+        try:
+            ref = self.db.document(path)
+            ref.update(data)
+        except Exception as e:
+            # 若文档不存在，fallback 到 set()
+            if "No document to update" in str(e):
+                ref.set(data)
+            else:
+                raise e
+
+    # ✅ 新增通用 set 方法（防止旧版本未定义）
+    async def safe_set(self, path: str, data: dict):
+        """
+        ⚡ 安全创建或覆盖 Firestore 文档
+        """
+        ref = self.db.document(path)
+        ref.set(data)
+
 
 # ✅ 实例化单例
 fs_service = FirestoreService()

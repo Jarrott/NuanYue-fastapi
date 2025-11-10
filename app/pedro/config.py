@@ -223,12 +223,20 @@ class Settings(BaseSettings):
                     setattr(self, section_name, section_data)
 
     def summary(self):
-        """输出配置概要"""
-        print(f"\n🌍 [{self.app.env}] {self.app.name} 配置概览：")
-        for name, value in self.__dict__.items():
-            if isinstance(value, BaseModel):
-                print(f"🧩 {name}: {value.model_dump()}")
-        print("========================================\n")
+        """
+        ✅ Pedro-Core 配置检查
+        确认所有主要组件均加载成功后，仅输出成功提示
+        """
+        try:
+            required_sections = ["database", "redis", "rabbitmq", "google"]
+            missing = [sec for sec in required_sections if not getattr(self, sec, None)]
+
+            if missing:
+                print(f"⚠️ Pedro-Core 配置缺失: {', '.join(missing)}")
+            else:
+                print(f"✅ Pedro-Core 已加载配置成功：{self.app.name} ({self.app.env})")
+        except Exception as e:
+            print(f"❌ Pedro-Core 配置加载异常: {e}")
 
 
 # ======================================================

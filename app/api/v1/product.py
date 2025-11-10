@@ -7,9 +7,9 @@
 from fastapi import APIRouter, Depends
 
 from app.api.v1.model.shop_product import ShopProduct
-from app.api.v1.schema.response import PedroResponse, PaginatedResponse
+from app.api.v1.schema.response import PedroResponse
 from app.api.v1.schema.response import ProductResponse, ProductDetailResponse
-from app.api.v1.services.product_service import ProductService
+from app.api.v1.services.product_service import ProductFirestoreService as ProductService
 from app.api.v1.schema.user import PageQuery  # 上面定义的分页入参
 from app.pedro.pedro_jwt import login_required
 

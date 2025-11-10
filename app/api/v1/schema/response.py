@@ -26,23 +26,23 @@ class ORMBase(BaseModel):
 # =========================================================
 # ✅ 分页响应模型（含分页元信息）
 # =========================================================
-class PaginatedResponse(PedroResponse[List[T]], Generic[T]):
-    total: int = Field(default=0, description="总条目数")
-    page: int = Field(default=1, description="当前页码")
-    size: int = Field(default=10, description="每页大小")
-
-    @classmethod
-    def success(
-            cls,
-            data: Optional[List[T]] = None,
-            total: int = 0,
-            page: int = 1,
-            size: int = 10,
-            msg: str = "success",
-            code: int = 0
-    ):
-        return cls(code=code, msg=msg, data=data or [], total=total, page=page, size=size)
-
+# class PaginatedResponse(PedroResponse[List[T]], Generic[T]):
+#     total: int = Field(default=0, description="总条目数")
+#     page: int = Field(default=1, description="当前页码")
+#     size: int = Field(default=10, description="每页大小")
+#
+#     @classmethod
+#     def success(
+#             cls,
+#             data: Optional[List[T]] = None,
+#             total: int = 0,
+#             page: int = 1,
+#             size: int = 10,
+#             msg: str = "success",
+#             code: int = 0
+#     ):
+#         return cls(code=code, msg=msg, data=data or [], total=total, page=page, size=size)
+#
 
 # =========================================================
 # ❌ 错误响应模型（简化版）

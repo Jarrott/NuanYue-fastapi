@@ -23,6 +23,7 @@ from app.extension.redis.redis_client import rds
 from app.pedro.enums import KYCStatus
 from app.pedro.pedro_jwt import login_required
 from app.pedro.response import PedroResponse
+from app.pedro.response_adapter import PedroResponseAdapter as R
 
 rp = APIRouter(prefix="/merchant", tags=["商家模块"])
 
@@ -151,10 +152,26 @@ async def list_purchases(
         size: int = Query(default=20, ge=1, le=100),
         user=Depends(login_required)
 ):
-    docs = await MerchantService.list_purchase_batches(user.id, size)
+    """
+    🔹 分页查询商户采购记录
+    🔹 兼容 Firestore 结构（每批次内含 items）
+    🔹 自动补齐商品详情
+    """
+    result = await MerchantService.list_purchase_batches(user.id, size)
 
+    # ✅ 防止返回 PedroResponse / JSONResponse 导致 TypeError
+    if isinstance(result, dict):
+        data_block = result.get("data", result)
+    elif hasattr(result, "body"):
+        import json
+        data_block = json.loads(result.body.decode()).get("data", {})
+    else:
+        data_block = {}
+
+    batches = data_block.get("items", [])
+
+    # 🔹 时间字段序列化
     def normalize(obj):
-        from google.cloud.firestore_v1 import _helpers
         if isinstance(obj, _helpers.DatetimeWithNanoseconds):
             return obj.isoformat()
         if isinstance(obj, dict):
@@ -163,53 +180,37 @@ async def list_purchases(
             return [normalize(v) for v in obj]
         return obj
 
-    data = [normalize(doc) for doc in docs]
+    items = [normalize(doc) for doc in batches]
 
-    # ✅ PedroResponse.page 需要: page, size, total, items
+    # ✅ 标准分页返回
+    total = data_block.get("total", len(items))
     return PedroResponse.page(
         page=page,
         size=size,
-        total=len(data),
-        items=data
+        total=total,
+        items=items
     )
 
-
-# ====================================================
-# 🔍 查询采购详情
-# ====================================================
-@rp.get("/purchase/{batch_id}")
-async def purchase_detail(uid: str, batch_id: str):
-    return await MerchantService.get_purchase_batch_detail(uid, batch_id)
-
-
-# ✅ 原采购逻辑
-@rp.post("/{uid}/purchase/batch")
-async def merchant_purchase(uid: str, body: dict = Body(...)):
-    return await MerchantService.purchase_batch(uid, body["items"])
+@rp.get("/orders/need-purchase", summary="查询需要进货的订单列表")
+async def list_need_purchase_orders(
+        page: int = Query(default=1, ge=1),
+        size: int = Query(default=50, ge=1, le=100),
+        user=Depends(login_required)
+):
+    result = await MerchantService.list_need_purchase_orders(user.id, size)
+    return R.page(result, page=page, size=size)
 
 
-# =========================================================
-# ✅ 查询缺货订单（分页）
-# =========================================================
-@rp.get("/restock/orders")
-async def get_need_purchase_orders(
-    uid: str = Query(..., description="商户ID"),
-    page: int = Query(1, description="页码", ge=1),
-    size: int = Query(20, description="每页大小", le=100),
+@rp.post("/restock/single", summary="单独补货指定订单")
+async def restock_single(
+        order_id: str = Body(..., embed=True, description="订单ID"),
+        user=Depends(login_required)
 ):
     """
-    🔍 获取商户缺货订单列表
-    - 支持分页（Firestore startAfter 游标）
+    🔹 单独补货接口（扣款 + Firestore + RTDB 同步）
+    🔹 用于单条缺货订单的补货操作
     """
-    orders, next_cursor = await RestockService.list_need_purchase_orders_paged(uid, limit=size)
-    return PedroResponse.page(
-        msg=f"找到 {len(orders)} 个缺货订单",
-        items=orders,
-        total=len(orders),
-        page=page,
-        size=size,
-        cursor=next_cursor,
-    )
+    return await RestockService.restock_single(uid=user.id, order_id=order_id)
 
 
 # =========================================================

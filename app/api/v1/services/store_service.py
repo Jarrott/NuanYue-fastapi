@@ -1,15 +1,14 @@
-# @Time    : 2025/11/10 03:40
+# @Time    : 2025/11/10 04:10
 # @Author  : Pedro
 # @File    : merchant_service.py
 # @Software: PyCharm
 """
-🔥 Pedro-Core MerchantService
-商户核心服务模块（钱包 + 店铺采购）
-功能包含：
-  ✅ 批量采购（Firestore + PostgreSQL 同步）
-  ✅ 钱包扣款与余额同步
-  ✅ 查询采购记录（列表 / 详情）
-  ✅ 整合 Firestore 与 SQL 商品信息
+🔥 Pedro-Core MerchantService (优化版)
+商户核心服务模块：钱包 + 店铺采购
+结构优化：
+  ✅ 支持 Firestore 批次结构（含多商品 items）
+  ✅ 统一分页返回格式（PedroResponse.page）
+  ✅ 优化 SQL 联查与数据补全
 """
 
 import asyncio
@@ -27,108 +26,95 @@ from app.pedro.response import PedroResponse
 
 
 class MerchantService:
+
     # ==============================================================
-    # 📦 批量采购（含 Firestore 事务 + SQL 库同步 + 钱包扣款）
+    # 📦 批量采购（Firestore 事务 + SQL 同步）
     # ==============================================================
     @staticmethod
     async def purchase_batch(uid: str, items: list[dict[str, int]]) -> PedroResponse:
         """
         商户批量采购接口
-        1️⃣ 检查 PostgreSQL 商品库存
-        2️⃣ Firestore 事务：扣余额 + 写采购记录 + 增加商家库存
-        3️⃣ SQL 库扣减平台库存
-        4️⃣ 钱包余额同步
+        Firestore 批次文档写入统一字段：
+          - batch_id
+          - items: [{product_id, product_name, quantity, unit_price, subtotal}]
+          - total_amount
+          - status: purchased
+          - created_at (用该字段排序)
         """
-        # 1️⃣ 查询数据库内商品信息
+        # 1) 读取 SQL 商品信息
         async with async_session_factory() as session:
-            ids = [i["product_id"] for i in items]
+            ids = [int(i["product_id"]) for i in items]
             result = await session.execute(select(ShopProduct).where(ShopProduct.id.in_(ids)))
-            products = {p.id: p for p in result.scalars().all()}
+            products = {int(p.id): p for p in result.scalars().all()}
 
-        # 2️⃣ 计算总价并验证余额
-        total_cost = sum(float(products[i["product_id"]].price) * i["quantity"] for i in items)
-        wallet = await fs.get(f"users/{uid}/store/wallet")
-        if wallet.get("available_balance", 0) < total_cost:
-            return PedroResponse.fail(msg=f"余额不足，总价 {total_cost} USD")
+        # 2) 计算总价（确保非 0）
+        batch_items = []
+        total_cost = 0.0
+        for it in items:
+            pid = int(it["product_id"])
+            qty = int(it["quantity"])
+            p = products.get(pid)
+            if not p:
+                return PedroResponse.fail(msg=f"商品不存在: {pid}")
+            unit_price = float(p.price)
+            subtotal = round(unit_price * qty, 2)
+            total_cost += subtotal
+            batch_items.append({
+                "product_id": pid,
+                "product_name": p.title,
+                "quantity": qty,
+                "unit_price": unit_price,
+                "subtotal": subtotal,
+            })
 
-        batch_id = f"BATCH-{uuid.uuid4().hex[:10]}"
+        total_cost = round(total_cost, 2)
+        if total_cost <= 0:
+            return PedroResponse.fail(msg="总价计算异常（0）")
 
-        # 3️⃣ Firestore 事务执行
+        # 3) Firestore 事务：扣余额 + 写批次 + 增库存（商家侧）
+        batch_id = uuid.uuid4().hex
+        purchase_ref = fs.db.document(f"users/{uid}/store/meta/purchases/{batch_id}")
+
         @firestore.transactional
         def _tx(transaction):
             wallet_ref = fs.db.document(f"users/{uid}/store/wallet")
             snap = wallet_ref.get(transaction=transaction)
-            balance = (snap.to_dict() or {}).get("available_balance", 0)
+            balance = float((snap.to_dict() or {}).get("available_balance", 0.0))
             if balance < total_cost:
-                raise ValueError(f"余额不足：需要 {total_cost} USD，当前余额 {balance}")
+                raise ValueError(f"余额不足：{balance:.2f} < {total_cost:.2f}")
 
-            # 更新钱包余额
+            # 扣余额
             transaction.update(wallet_ref, {
                 "available_balance": firestore.Increment(-total_cost),
                 "updated_at": firestore.SERVER_TIMESTAMP,
             })
 
-            # 写入每个商品采购记录
-            for item in items:
-                pid, qty = item["product_id"], item["quantity"]
-                p = products[pid]
-                sub_id = f"{batch_id}-{pid}"
+            # 写批次
+            transaction.set(purchase_ref, {
+                "batch_id": batch_id,
+                "items": batch_items,  # ✅ 单价/小计完整
+                "total_amount": total_cost,  # ✅ 非 0
+                "status": "purchased",
+                "created_at": firestore.SERVER_TIMESTAMP,  # ✅ 统一使用 created_at
+            })
 
-                purchase_ref = fs.db.document(f"users/{uid}/store/meta/purchases/{sub_id}")
+            # 商家库存累加
+            for it in batch_items:
+                pid, qty = it["product_id"], int(it["quantity"])
                 product_ref = fs.db.document(f"users/{uid}/store/meta/products/{pid}")
-                log_ref = fs.db.document(f"users/{uid}/store/logs/meta/{sub_id}")
-
-                transaction.set(purchase_ref, {
-                    "purchase_id": sub_id,
-                    "product_id": pid,
-                    "title": p.title,
-                    "quantity": qty,
-                    "unit_price": float(p.price),
-                    "total_cost": float(p.price) * qty,
-                    "timestamp": firestore.SERVER_TIMESTAMP,
-                })
                 transaction.set(product_ref, {
                     "product_id": pid,
+                    "title": it["product_name"],
                     "stock": firestore.Increment(qty),
-                    "merchant_price": float(p.price) * 1.15,
-                    "platform_price": float(p.price),
-                    "status": "active",
+                    "merchant_price": it["unit_price"],
                     "updated_at": firestore.SERVER_TIMESTAMP,
                 }, merge=True)
-                transaction.set(log_ref, {
-                    "type": "batch_purchase",
-                    "desc": f"批量采购 {p.title} × {qty}",
-                    "amount": -float(p.price) * qty,
-                    "timestamp": firestore.SERVER_TIMESTAMP,
-                })
 
-        # ✅ Firestore 事务提交
         await asyncio.to_thread(lambda: _tx(fs.db.transaction()))
 
-        # 4️⃣ 更新 SQL 平台库存
+        # 4) 平台 SQL 库扣减库存
         async with async_session_factory() as session:
-            ids = [it["product_id"] for it in items]
-            result = await session.execute(
-                select(ShopProduct.id, ShopProduct.title, ShopProduct.stock)
-                .where(ShopProduct.id.in_(ids))
-            )
-            products = {p.id: p for p in result.mappings().all()}
-
-            insufficient = []
-            for it in items:
-                pid, qty = it["product_id"], int(it["quantity"])
-                product = products.get(pid)
-                if not product:
-                    insufficient.append(f"商品ID {pid} 不存在")
-                elif product["stock"] < qty:
-                    insufficient.append(
-                        f"商品ID:{product['id']}|{product['title']} 库存不足（剩余 {product['stock']}）"
-                    )
-            if insufficient:
-                return PedroResponse.fail(msg=f"库存不足：{'、'.join(insufficient)}")
-
-            # 扣减库存
-            for it in items:
+            for it in batch_items:
                 pid, qty = it["product_id"], int(it["quantity"])
                 await session.execute(
                     update(ShopProduct)
@@ -137,37 +123,48 @@ class MerchantService:
                 )
             await session.commit()
 
-        # 5️⃣ 同步钱包余额
+        # 5) 同步余额（读 Firestore 再同步，确保是事务后的数值）
         try:
-            wallet = await fs.get(f"users/{uid}/store/wallet")
-            balance_after = float(wallet.get("available_balance", 0))
-            await WalletSecureService._sync_balance(uid, balance_after)
+            wallet_doc = await fs.get(f"users/{uid}/store/wallet")
+            from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
+            await WalletSecureService._sync_balance(uid, float(wallet_doc.get("available_balance", 0.0)))
         except Exception as e:
-            print(f"[WARN] 余额同步失败: {e}")
+            print(f"[WARN] 钱包同步失败: {e}")
 
-        return PedroResponse.success(data={
-            "batch_id": batch_id,
-            "total_cost": total_cost,
-            "count": len(items),
-            "msg": "✅ 批量采购成功"
-        })
+        return PedroResponse.success(
+            data={"batch_id": batch_id, "total_cost": total_cost, "count": len(batch_items)},
+            msg="✅ 批量采购成功"
+        )
 
     # ==============================================================
-    # 📜 查询采购批次列表（Firestore + SQL 联合）
+    # 📜 查询采购批次列表（返回原始 list，交给路由做分页）
     # ==============================================================
     @staticmethod
-    async def list_purchase_batches(uid: str, limit: int = 20):
+    async def list_purchase_batches(uid: str, limit: int = 20) -> list[dict]:
         """
-        获取商户采购记录列表，补齐 SQL 商品详情。
+        返回“原始列表”以便路由层组合 PedroResponse.page(...)
+        Firestore 按 created_at 倒序
+        会补齐 items[].product_detail（来自 SQL）
         """
         path = f"users/{uid}/store/meta/purchases"
-        query = fs.db.collection(path).order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit)
+        query = (
+            fs.db.collection(path)
+            .order_by("created_at", direction=firestore.Query.DESCENDING)  # ✅ 与写入字段一致
+            .limit(limit)
+        )
         docs = query.stream()
-        purchase_list = [doc.to_dict() for doc in docs]
+        batches = [doc.to_dict() for doc in docs if doc.exists]
 
-        product_ids = list({p.get("product_id") for p in purchase_list if p.get("product_id")})
+        # 聚合商品 ID
+        product_ids = set()
+        for b in batches:
+            for i in b.get("items", []):
+                pid = i.get("product_id")
+                if pid is not None:
+                    product_ids.add(int(pid))
+
+        # SQL 详情
         details_map = {}
-
         if product_ids:
             async with async_session_factory() as session:
                 result = await session.execute(
@@ -181,66 +178,88 @@ class MerchantService:
                             ShopProduct.rating,
                             ShopProduct.discount,
                         )
-                    ).where(ShopProduct.id.in_(product_ids))
+                    ).where(ShopProduct.id.in_(list(product_ids)))
                 )
                 products = result.scalars().all()
                 details_map = {
-                    p.id: getattr(p, "to_dict", lambda: {
-                        "id": p.id,
+                    int(p.id): {
+                        "id": int(p.id),
                         "title": p.title,
                         "price": float(p.price),
-                        "stock": p.stock
-                    })()
+                        "stock": int(p.stock or 0),
+                        "images": getattr(p, "images", []),
+                        "rating": getattr(p, "rating", None),
+                        "discount": getattr(p, "discount", None),
+                    }
                     for p in products
                 }
 
-        # 🔗 合并 Firestore 与 SQL 商品详情
-        for p in purchase_list:
-            pid = p.get("product_id")
-            if pid and pid in details_map:
-                p["product_detail"] = details_map[pid]
+        # 补齐详情
+        for b in batches:
+            for i in b.get("items", []):
+                pid = int(i.get("product_id", 0))
+                if pid in details_map:
+                    i["product_detail"] = details_map[pid]
 
-        return PedroResponse.success(
-            data={"count": len(purchase_list), "purchases": purchase_list},
-            msg=f"✅ 获取采购记录成功，共 {len(purchase_list)} 条"
-        )
+        return batches  # ✅ 注意：返回原始 list
 
     # ==============================================================
-    # 🔍 查询单个采购详情
+    # 🔍 查询单个采购详情（含 SQL 补全）
     # ==============================================================
     @staticmethod
     async def get_purchase_batch_detail(uid: str, batch_id: str):
         path = f"users/{uid}/store/meta/purchases/{batch_id}"
-        data = await fs.get(path)
-        if not data:
-            return PedroResponse.fail(msg="采购批次不存在")
-        return PedroResponse.success(data=data)
-
-    # ==============================================================
-    # 🧾 Firestore + SQL 整合（含商品详情）
-    # ==============================================================
-    @staticmethod
-    async def get_purchase_batch_with_products(uid: str, batch_id: str):
-        path = f"users/{uid}/store/meta/purchases/{batch_id}"
         batch = await fs.get(path)
         if not batch:
-            return PedroResponse.fail(msg="采购记录不存在")
+            return PedroResponse.fail(msg="采购批次不存在")
 
         items = batch.get("items", [])
-        product_ids = [i["product_id"] for i in items]
+        product_ids = [int(i["product_id"]) for i in items if i.get("product_id")]
 
         async with async_session_factory() as session:
             result = await session.execute(select(ShopProduct).where(ShopProduct.id.in_(product_ids)))
             products = {p.id: p for p in result.scalars().all()}
 
-        enriched = []
-        for item in items:
-            pid = item["product_id"]
-            prod = products.get(pid)
-            enriched.append({
-                **item,
-                "product_info": prod.to_dict() if prod and hasattr(prod, "to_dict") else None
-            })
+        for it in items:
+            pid = int(it.get("product_id", 0))
+            if pid in products:
+                prod = products[pid]
+                it["product_info"] = {
+                    "id": prod.id,
+                    "title": prod.title,
+                    "price": float(prod.price),
+                    "stock": prod.stock,
+                }
 
-        batch["items"] = enriched
+        batch["items"] = items
         return PedroResponse.success(data=batch)
+
+    # ==============================================================
+    # 📜 查询需要进货的订单（返回原始 list，交给路由分页）
+    # ==============================================================
+    @staticmethod
+    async def list_need_purchase_orders(uid: str, limit: int = 50) -> list[dict]:
+        """
+        查询所有 status == 'need_purchase' 的订单。
+        若缺少 created_at 字段则自动回退到 __name__ 排序。
+        """
+        path = f"users/{uid}/store/meta/orders"
+        col = fs.db.collection(path)
+
+        try:
+            query = (
+                col.where("status", "==", "need_purchase")
+                .order_by("created_at", direction=firestore.Query.DESCENDING)
+                .limit(limit)
+            )
+            docs = query.stream()
+        except Exception as e:
+            print(f"[WARN] Firestore 排序字段 created_at 不存在: {e}，使用 __name__ 回退。")
+            query = (
+                col.where("status", "==", "need_purchase")
+                .order_by("__name__", direction=firestore.Query.DESCENDING)
+                .limit(limit)
+            )
+            docs = query.stream()
+
+        return [doc.to_dict() for doc in docs if doc.exists]

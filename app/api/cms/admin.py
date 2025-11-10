@@ -8,6 +8,7 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ 支持会员开通、签到、邀请关系树
 """
 import datetime
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -99,23 +100,17 @@ async def admin_deposit(payload: AdminDepositSchema, admin=Depends(admin_require
     reference = f"deposit:{payload.order_no}"
 
     uid = str(payload.user_id)
+    reference = f"ADM-CR-{uuid.uuid4().hex[:12]}"
 
     # 1️⃣ 安全入账
-    result = await WalletSecureService.credit_wallet_admin(
+    await WalletSecureService.credit_wallet_admin(
         uid=uid,
         amount=payload.amount,
-        operator_id=admin.username,  # ✅ 正确字段名
         reference=reference,
-        type="deposit_approve",  # ✅ 可传入操作类型（如充值审核通过）
-        remark="充值审核通过",  # ✅ 可作为 Ledger 备注
+        desc="管理员手动入账",
+        operator_id=str(admin.username),
+        remark="充值审核通过"
     )
-
-    # 2️⃣ Firestore 入账完成后，异步同步 RTDB（保险起见再同步一次）
-    if result and isinstance(result, dict) and result.get("status") == "ok":
-        balance_after = result.get("balance_after")
-        # 异步同步，不阻塞主线程
-        import asyncio
-        asyncio.create_task(WalletSyncService.sync_balance(payload.user_id, balance_after))
 
     # 3️⃣ 发送 WebSocket 通知给用户（充值成功）
     await notify_user(payload.user_id, {
@@ -130,19 +125,21 @@ async def admin_deposit(payload: AdminDepositSchema, admin=Depends(admin_require
     )
 
 
-@rp.post("/wallet/manual-debit", name="管理员手动（扣款）")
-async def manual_debit(payload: ManualCreditSchema, admin=Depends(admin_required)):
+@rp.post("/manual/debit", name="管理员手动（扣款）", dependencies=[Depends(admin_required)])
+async def manual_debit_api(payload: ManualCreditSchema, admin=Depends(admin_required)):
     """
-    管理员手动下分接口
+    管理员手动扣款（强同步 + 幂等）
+    - Firestore 原子扣款 + Ledger
+    - PostgreSQL / Redis / RTDB 多源同步
     """
-    # 管理员手动扣款
-    res = await AdminWalletService.manual_debit(
+    result = await WalletSecureService.debit_wallet_admin(
         uid=payload.user_id,
-        amount=payload.amount,
-        reason="违规行为处罚" if payload.reason is None else payload.reason,
-        admin_user="root",
+        amount=float(payload.amount),
+        operator_id=admin.username,                    # 记录后台操作者
+        remark=payload.reason or "后台扣款",             # 备注
+        # reference=payload.reference 如果你 schema 里有也可传入，保证幂等
     )
-    return PedroResponse.success(msg="扣款成功")
+    return result   # 已是 PedroResponse(JSONResponse)
 
 
 @rp.get("/ledger/list", name="平台出入账列表（按 ledger 聚合）")
