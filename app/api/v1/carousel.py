@@ -6,39 +6,39 @@
 """
 import time
 
-from fastapi import APIRouter, Query, Header
+from fastapi import APIRouter, Query, Header, Depends
 
 from app.api.v1.model.carousel import Carousel
 from app.api.v1.model.category import Category
-from app.api.v1.schema.response import CarouselListResponse, CategoryListResponse, BannerListResponse
+from app.api.v1.schema.response import CarouselListResponse, CategoryListResponse, BannerListResponse, BannerResponse, \
+    CategoryResponse
 from app.api.v1.schema.response import PedroResponse
 from app.api.v1.services.carousel import CarouselService
 from app.pedro.utils import normalize_lang
+from app.util.get_lang import get_lang
 
 rp = APIRouter(prefix="/public", tags=["平台APP端公共资源"])
 
 
-@rp.get("/get/banners", name="获取轮播图",response_model=BannerListResponse)
-async def get_carousel(lang: str = Header(default=None, alias="Snap-App-Language")):
-    lang = normalize_lang(lang)
-
-    items = await Carousel.get(country=lang, one=False)
-    if not items:
-        return PedroResponse.fail(msg="数据有误")
-    return BannerListResponse(data=items)
+@rp.get("/banners", response_model=PedroResponse[list[BannerResponse]])
+async def get_banners(lang: str = Depends(get_lang)):
+    banners = await Carousel.get(country=lang, one=False)
+    if not banners:
+        return PedroResponse.fail(msg="无数据")
+    return PedroResponse.success(data=banners, schema=BannerResponse)
 
 
-@rp.get("/categories", name="获取商品分类", response_model=CategoryListResponse)
-async def get_category(lang: str = Header(default=None, alias="Snap-App-Language")):
-    lang = normalize_lang(lang)
+@rp.get("/categories", name="获取商品分类", response_model=PedroResponse[list[CategoryResponse]])
+async def get_category(lang: str = Depends(get_lang)):
+
     data = await Category.get(language=lang, one=False)
 
-    print(lang,data)
+    print(lang, data)
 
     if not data:
-        raise PedroResponse.fail(msg="数据错误")
+        return PedroResponse.fail(msg="没有数据")
 
-    return CategoryListResponse(data=data)
+    return PedroResponse.success(data=data, schema=CategoryResponse)
 
 
 @rp.post("/ping", name="客户端延迟")

@@ -257,22 +257,6 @@ async def diagnose(request: Request, tz: str = Query(None)):
     }
 
 
-@rp.get("/tt")
-async def _expire():
-    await rtdb_msg.update_balance(10001, 1)
-    return True
-
-
-# @rp.get("/user", dependencies=[Depends(login_required)])
-# async def user_access():
-#     """所有登录用户可访问"""
-#     return {"msg": "✅ 普通用户接口访问成功"}
-#
-#
-# @rp.get("/admin", dependencies=[Depends(admin_required)])
-# async def admin_access():
-#     """仅管理员可访问"""
-#     return {"msg": "🛡️ 管理员接口访问成功"}
 
 
 @rp.get("/push/message", name="推送信息给客服")
@@ -291,21 +275,6 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
     )
 
     return DepositCreateResponse(order_number=deposit.order_no)
-
-
-@rp.get("/order/detail/{order_no}", name="查看订单详情")
-async def order_detail():
-    pass
-
-
-@rp.get("/shops/detail", name="查看商品详情")
-async def product_detail():
-    pass
-
-
-@rp.get("/ads", name="轮播图")
-def ads1():
-    pass
 
 
 @rp.post("/kyc", name="用户提交认证")

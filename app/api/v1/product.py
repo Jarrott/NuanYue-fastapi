@@ -4,41 +4,53 @@
 # @File    : product.py
 # @Software: PyCharm
 """
-from fastapi import APIRouter, Depends
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import desc, asc, or_, select
 
 from app.api.v1.model.shop_product import ShopProduct
+from app.api.v1.schema.merchant import ProductSchema
 from app.api.v1.schema.response import PedroResponse
 from app.api.v1.schema.response import ProductResponse, ProductDetailResponse
-from app.api.v1.services.product_service import ProductFirestoreService as ProductService
+from app.api.v1.services.product_service import ShopProduct, ProductService
 from app.api.v1.schema.user import PageQuery  # 上面定义的分页入参
 from app.pedro.pedro_jwt import login_required
+from app.pedro.response_adapter import PedroResponseAdapter
 
 rp = APIRouter(prefix="/products", tags=["Products"])
 
 
-@rp.get("/", name="商品列表")
+@rp.get("/", name="商品列表", response_model=PedroResponse[list[ProductSchema]])
 async def product_list(
         page_query: PageQuery = Depends(),
         keyword: str | None = None,
         category: str | None = None,
         brand: str | None = None,
-        featured: bool | None = None,
+        featured: Optional[bool] = Query(None, description="是否精选"),
         order_by: str = "id",
-        sort: str = "desc"
+        sort: str = "desc",
 ):
+    test = await ShopProduct.get(featured=featured, one=False)
+
+    print(test)
     items, total = await ProductService.list_products(
         keyword=keyword,
         category=category,
         brand=brand,
-        order_by=order_by,
         featured=featured,
+        order_by=order_by,
         sort=sort,
         page=page_query.page,
-        size=page_query.size
+        size=page_query.size,
     )
 
-    return PedroResponse.page(items=items, total=total,
-                              page=page_query.page, size=page_query.size)
+    return PedroResponse.page(
+        items=items, total=total,
+        page=page_query.page, size=page_query.size,
+        msg="商品列表获取成功",
+        schema=ProductSchema
+    )
 
 
 @rp.get("/{product_id}", name="商品详情", response_model=ProductDetailResponse)

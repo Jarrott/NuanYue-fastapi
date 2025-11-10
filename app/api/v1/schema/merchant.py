@@ -70,3 +70,15 @@ class PurchaseSchema(BaseModel):
     items: Optional[List[Dict[str, int]]] = Field(None, description="批量采购列表",
                                                   examples=[{"product_id": 101, "quantity": 5},
                                                             {"product_id": 102, "quantity": 3}])
+
+
+class ProductSchema(BaseModel):
+    id: int
+    title: str
+    price: float
+    description: str = None
+    rating: float = None
+    stock: int = None
+    category:str = None
+    images: Optional[list] = None
+    thumbnail: str = None

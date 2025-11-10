@@ -5,11 +5,11 @@ Pedro-Core 接口定义层（Interface Layer）
 ✅ 提供字段定义和通用方法，不注册到数据库
 ✅ 由 model 层继承实现实际 ORM 映射
 ✅ 兼容 SQLAlchemy 2.x 异步 Session
+✅ 支持自定义 query、分页、计数、排序
 """
 
 from __future__ import annotations
 from datetime import datetime, timezone
-from sqlalchemy import select
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from sqlalchemy import (
@@ -20,7 +20,10 @@ from sqlalchemy import (
     SmallInteger,
     String,
     func,
+    select,
     text,
+    asc,
+    desc,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
@@ -42,33 +45,179 @@ class BaseCrud(BaseModel):
     id = Column(Integer, primary_key=True, autoincrement=True)
 
     # ======================================================
-    # 🔍 通用查询（单条 / 多条）
+    # 🔍 通用查询（兼容 query / filters）
     # ======================================================
     @classmethod
     async def get(
-            cls: Type[T],
-            *,
-            one: bool = True,
-            **filters: Any,
+        cls: Type[T],
+        *,
+        one: bool = True,
+        query=None,
+        order_by: str | None = None,
+        sort: str = "asc",
+        offset: int | None = None,
+        limit: int | None = None,
+        **filters: Any,
     ) -> Union[Optional[T], list[T]]:
+        """
+        通用查询：
+        ✅ 支持 query=select(cls) 自定义查询对象
+        ✅ 支持 filter_by(**filters)
+        ✅ 支持排序、分页
+        """
         async with async_session_factory() as session:
-            stmt = select(cls).filter_by(**filters)
+            # 🔸 兼容外部传入完整查询
+            if query is not None:
+                stmt = query
+            else:
+                stmt = select(cls).filter_by(**filters)
+
+            # 🔸 排序
+            if order_by and hasattr(cls, order_by):
+                order_col = getattr(cls, order_by)
+                stmt = stmt.order_by(
+                    desc(order_col) if sort.lower() == "desc" else asc(order_col)
+                )
+
+            # 🔸 分页
+            if offset is not None:
+                stmt = stmt.offset(offset)
+            if limit is not None:
+                stmt = stmt.limit(limit)
+
             result = await session.execute(stmt)
 
             if one:
-                # ✅ 不再使用 scalar_one_or_none()，改用 first()
-                return result.scalars().first()  # 安全，不抛异常
-            else:
-                return list(result.scalars().all())
+                return result.scalars().first()
+            return list(result.scalars().all())
 
     # ======================================================
-    # 🔢 计数查询
+    # 📄 通用分页查询（含模糊搜索 + 排序）
+    # ======================================================
+    # ======================================================
+    # 📄 通用分页查询（含模糊搜索 + 排序 + 布尔识别增强）
     # ======================================================
     @classmethod
-    async def count(cls, **filters: Any) -> int:
+    async def paginate(
+            cls: Type[T],
+            *,
+            page: int = 1,
+            size: int = 10,
+            filters: Optional[dict] = None,
+            keyword: Optional[str] = None,
+            keyword_fields: Optional[list[str]] = None,
+            order_by: Optional[str] = None,
+            sort: str = "desc",
+    ) -> tuple[list[T], int]:
+        """
+        📄 Pedro-Core 通用分页查询（安全版）
+        -------------------------------------------------
+        ✅ 支持 filters 等值查询（布尔/数值/字符串自动识别）
+        ✅ 支持 keyword 模糊搜索（多字段）
+        ✅ 支持排序与分页
+        ✅ 自动统计总数，复用同样的过滤条件
+        ✅ 兼容 PostgreSQL / MySQL / SQLite
+        -------------------------------------------------
+        返回: (items, total)
+        """
+
+        def normalize_value(v):
+            """🔧 通用类型转换（布尔安全）"""
+            if v is None:
+                return None
+            if isinstance(v, str):
+                lv = v.lower().strip()
+                if lv in ("1", "true", "t", "yes", "y"):
+                    return True
+                if lv in ("0", "false", "f", "no", "n"):
+                    return False
+                # 尝试转数字
+                try:
+                    if "." in lv:
+                        return float(lv)
+                    return int(lv)
+                except ValueError:
+                    return lv
+            return v
+
         async with async_session_factory() as session:
-            stmt = select(func.count(cls.id)).filter_by(**filters)
+            stmt = select(cls)
+
+            # ======================================================
+            # 🔹 等值过滤（布尔安全 + 兼容多数据库）
+            # ======================================================
+            if filters:
+                for k, v in filters.items():
+                    if hasattr(cls, k):
+                        v = normalize_value(v)
+                        if v is not None:
+                            stmt = stmt.where(getattr(cls, k) == v)
+
+            # ======================================================
+            # 🔹 模糊搜索（多字段匹配）
+            # ======================================================
+            if keyword and keyword_fields:
+                from sqlalchemy import or_
+                like_pattern = f"%{keyword}%"
+                stmt = stmt.where(
+                    or_(
+                        *[
+                            getattr(cls, f).ilike(like_pattern)
+                            if hasattr(cls, f) and hasattr(getattr(cls, f), "ilike")
+                            else getattr(cls, f).like(like_pattern)
+                            for f in keyword_fields
+                            if hasattr(cls, f)
+                        ]
+                    )
+                )
+
+            # ======================================================
+            # 🔹 排序
+            # ======================================================
+            if order_by and hasattr(cls, order_by):
+                order_col = getattr(cls, order_by)
+                stmt = stmt.order_by(
+                    desc(order_col) if sort.lower() == "desc" else asc(order_col)
+                )
+            else:
+                # 默认按主键倒序
+                if hasattr(cls, "id"):
+                    stmt = stmt.order_by(desc(cls.id))
+
+            # ======================================================
+            # 🔹 分页
+            # ======================================================
+            offset = max(page - 1, 0) * size
+            stmt = stmt.offset(offset).limit(size)
+
+            # ======================================================
+            # 🔹 执行分页查询
+            # ======================================================
             result = await session.execute(stmt)
+            items = list(result.scalars().all())
+
+            # ======================================================
+            # 🔹 构造 count 查询（复用 where 条件）
+            # ======================================================
+            count_stmt = select(func.count(cls.id))
+            for w in stmt._where_criteria:
+                count_stmt = count_stmt.where(w)
+
+            total = (await session.execute(count_stmt)).scalar() or 0
+
+            return items, int(total)
+
+    # ======================================================
+    # 🔢 计数查询（支持 query / filters）
+    # ======================================================
+    @classmethod
+    async def count(cls, query=None, **filters: Any) -> int:
+        async with async_session_factory() as session:
+            if query is not None:
+                count_stmt = query.with_only_columns(func.count(cls.id))
+            else:
+                count_stmt = select(func.count(cls.id)).filter_by(**filters)
+            result = await session.execute(count_stmt)
             return int(result.scalar() or 0)
 
     # ======================================================
@@ -80,7 +229,7 @@ class BaseCrud(BaseModel):
             obj = cls(**data)
             session.add(obj)
             await session.flush()
-            await session.refresh(obj)  # ✅ 关键：刷新以获取数据库分配的主键
+            await session.refresh(obj)
             if commit:
                 await session.commit()
             return obj
@@ -91,9 +240,9 @@ class BaseCrud(BaseModel):
     @classmethod
     async def upsert(cls: Type[T], where: dict, data: dict, commit: bool = True) -> T:
         async with async_session_factory() as session:
-            stmt = select(cls).filter_by(**where)
-            result = await session.execute(stmt.limit(1))
-            instance = result.scalar_one_or_none()
+            stmt = select(cls).filter_by(**where).limit(1)
+            result = await session.execute(stmt)
+            instance = result.scalars().first()
 
             if instance:
                 for k, v in data.items():
@@ -139,12 +288,18 @@ class BaseCrud(BaseModel):
 # 🕒 通用时间戳 + 软删除
 # ======================================================
 class InfoCrud(BaseCrud):
-    """带 create/update/delete_time 的抽象类"""
     __abstract__ = True
 
-    create_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now())
-    update_time = Column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc),
-                         server_onupdate=func.now())
+    create_time = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
+    update_time = Column(
+        DateTime(timezone=True),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_onupdate=func.now(),
+    )
     delete_time = Column(DateTime(timezone=True))
     is_deleted = Column(Boolean, nullable=False, default=False)
 
@@ -159,7 +314,6 @@ class InfoCrud(BaseCrud):
 # 👥 分组接口
 # ======================================================
 class AbstractGroup(InfoCrud):
-    """分组字段定义"""
     __abstract__ = True
 
     name = Column(String(60), nullable=False, comment="分组名称")
@@ -176,9 +330,7 @@ class AbstractGroup(InfoCrud):
 # 🔗 分组-权限关联接口
 # ======================================================
 class AbstractGroupPermission(BaseCrud):
-    """分组权限关联"""
     __abstract__ = True
-
     group_id = Column(Integer, nullable=False, comment="分组ID")
     permission_id = Column(Integer, nullable=False, comment="权限ID")
 
@@ -187,7 +339,6 @@ class AbstractGroupPermission(BaseCrud):
 # 🔑 权限接口
 # ======================================================
 class AbstractPermission(InfoCrud):
-    """权限字段定义"""
     __abstract__ = True
 
     name = Column(String(60), nullable=False, comment="权限名称")
@@ -199,40 +350,42 @@ class AbstractPermission(InfoCrud):
 
     def __eq__(self, other: object) -> bool:
         return (
-                isinstance(other, AbstractPermission)
-                and self.name == other.name
-                and self.module == other.module
+            isinstance(other, AbstractPermission)
+            and self.name == other.name
+            and self.module == other.module
         )
 
 
+# ======================================================
+# 👤 用户接口
+# ======================================================
 def normalize_keys(d: dict) -> dict:
-    """递归地将所有 dict key 转为小写"""
     if not isinstance(d, dict):
         return d
     return {k.lower(): normalize_keys(v) for k, v in d.items()}
 
 
 def default_extra() -> dict:
-    """返回标准化的 extra 默认结构"""
     from app.config.settings_manager import get_current_settings
     settings = get_current_settings()
     extra_default = getattr(settings.extra, "default", {})
     return normalize_keys(extra_default)
 
 
-# ======================================================
-# 👤 用户接口
-# ======================================================
 class AbstractUser(InfoCrud):
-    """用户基础字段定义"""
     __abstract__ = True
 
     username = Column(String(24), nullable=False, unique=True, index=True, comment="用户名")
     nickname = Column(String(24), comment="昵称")
     _avatar = Column(String(500), comment="头像URL")
     email = Column(String(100), unique=True, index=True, comment="邮箱")
+
     from sqlalchemy.dialects.postgresql import JSONB
-    extra = Column(MutableDict.as_mutable(JSONB), default=lambda: default_extra(), comment="扩展字段")
+    extra = Column(
+        MutableDict.as_mutable(JSONB),
+        default=lambda: default_extra(),
+        comment="扩展字段",
+    )
 
     async def verify(self, raw: str) -> bool:
         pass
@@ -249,9 +402,7 @@ class AbstractUser(InfoCrud):
 # 🔗 用户-分组接口
 # ======================================================
 class AbstractUserGroup(BaseCrud):
-    """用户-分组关联"""
     __abstract__ = True
-
     user_id = Column(Integer, nullable=False, comment="用户ID")
     group_id = Column(Integer, nullable=False, comment="分组ID")
 
@@ -260,9 +411,7 @@ class AbstractUserGroup(BaseCrud):
 # 🪪 用户身份接口
 # ======================================================
 class AbstractUserIdentity(InfoCrud):
-    """用户认证信息"""
     __abstract__ = True
-
     user_id = Column(Integer, nullable=False, comment="用户ID")
     identity_type = Column(String(100), nullable=False, comment="认证类型")
     identifier = Column(String(100), comment="标识")

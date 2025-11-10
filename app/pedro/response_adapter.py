@@ -1,36 +1,39 @@
-# @Time    : 2025/11/10 09:10
+# @Time    : 2025/11/11 00:48
 # @Author  : Pedro
 # @File    : response_adapter.py
 # @Software: PyCharm
 """
-🧩 Pedro-Core Response Adapter
-统一适配各种返回值（list / dict / JSONResponse / Firestore / ORM）到 PedroResponse
+🧩 Pedro-Core Response Adapter（新版）
 ----------------------------------------------------------
-✅ 自动提取 data / items
+统一适配各种返回值 → PedroJSONResponse
+✅ 自动提取 data/items
 ✅ 自动展开 JSONResponse / PedroResponse
 ✅ Firestore DatetimeWithNanoseconds → ISO
-✅ 一行封装分页输出
+✅ Decimal → float
+✅ 一键分页包装（PedroResponse.page）
 """
 
 import json
-from google.cloud.firestore_v1 import _helpers
+from decimal import Decimal
+from typing import Any
 from starlette.responses import JSONResponse
-from app.pedro.response import PedroResponse, serialize
+from google.cloud.firestore_v1 import _helpers
+from app.pedro.response import PedroJSONResponse, serialize, PedroResponse
 
 
 class PedroResponseAdapter:
-    """业务层结果 → PedroResponse 的统一适配器"""
+    """业务层结果 → PedroJSONResponse 的统一适配器"""
 
-    # -------------------------------------------
-    # 🔧 自动提取 items
-    # -------------------------------------------
+    # -----------------------------------------------------
+    # 🔍 提取 items
+    # -----------------------------------------------------
     @staticmethod
     def extract_items(result):
+        """智能提取 data/items 内容"""
         if isinstance(result, list):
             return result
 
         if isinstance(result, dict):
-            # 兼容 data/items 层
             if "data" in result:
                 data_block = result["data"]
                 if isinstance(data_block, dict) and "items" in data_block:
@@ -52,33 +55,80 @@ class PedroResponseAdapter:
 
         return []
 
-    # -------------------------------------------
-    # 🔧 Firestore 时间戳转换
-    # -------------------------------------------
+    # -----------------------------------------------------
+    # 🔧 类型规范化
+    # -----------------------------------------------------
     @staticmethod
-    def normalize(obj):
-        """递归处理 Firestore DatetimeWithNanoseconds"""
+    def normalize(obj: Any):
+        """递归处理 Firestore / Decimal / bytes / datetime 等类型"""
         if isinstance(obj, _helpers.DatetimeWithNanoseconds):
             return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, bytes):
+            return obj.decode("utf-8", errors="ignore")
         if isinstance(obj, dict):
             return {k: PedroResponseAdapter.normalize(v) for k, v in obj.items()}
         if isinstance(obj, list):
             return [PedroResponseAdapter.normalize(v) for v in obj]
         return obj
 
-    # -------------------------------------------
-    # ✅ 一键分页包装
-    # -------------------------------------------
+    # -----------------------------------------------------
+    # ✅ 分页包装
+    # -----------------------------------------------------
     @classmethod
-    def page(cls, result, page: int = 1, size: int = 20, msg="success"):
-        items = cls.extract_items(result)
-        normalized = [cls.normalize(i) for i in items]
-        return PedroResponse.page(items=normalized, total=len(normalized), page=page, size=size, msg=msg)
+    def page(cls, result, page: int = 1, size: int = 20, msg: str = "success"):
+        """
+        🔢 Pedro-Core 通用分页适配器
+        -------------------------------------
+        ✅ 自动识别 result 类型（list / Query / JSONResponse）
+        ✅ 自动 total 统计（切片前）
+        ✅ 自动分页切片
+        ✅ 自动 normalize + serialize（兼容 Decimal / Firestore / datetime）
+        ✅ 统一返回 PedroResponse.page()
+        """
 
-    # -------------------------------------------
-    # ✅ 一键成功包装（单数据）
-    # -------------------------------------------
+        # 1️⃣ 提取 items
+        items = cls.extract_items(result)
+        if not isinstance(items, list):
+            try:
+                items = list(items)
+            except Exception:
+                items = []
+
+        # 2️⃣ 总数统计（切片前）
+        total = len(items)
+
+        # 3️⃣ 参数安全化
+        try:
+            page = max(int(page or 1), 1)
+            size = max(int(size or 20), 1)
+        except Exception:
+            page, size = 1, 20
+
+        # 4️⃣ 分页切片
+        start = (page - 1) * size
+        end = start + size
+        page_items = items[start:end]
+
+        # 5️⃣ 序列化 + Firestore/Decimal 兼容
+        normalized_items = [cls.normalize(serialize(i)) for i in page_items]
+
+        # 6️⃣ 返回 PedroResponse.page（自动 JSON 序列化）
+        return PedroResponse.page(
+            items=normalized_items,
+            total=total,
+            page=page,
+            size=size,
+            msg=msg,
+        )
+
+    # -----------------------------------------------------
+    # ✅ 单项成功包装
+    # -----------------------------------------------------
     @classmethod
     def success(cls, result, msg="success"):
+        """返回统一成功响应（PedroJSONResponse）"""
         normalized = cls.normalize(serialize(result))
-        return PedroResponse.success(data=normalized, msg=msg)
+        payload = {"code": 0, "msg": msg, "data": normalized}
+        return PedroJSONResponse(content=payload)

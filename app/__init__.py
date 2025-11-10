@@ -11,6 +11,7 @@ FastAPI 应用初始化入口 (Pedro-Core 适配版)
 """
 import asyncio
 import os
+import pathlib
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -22,12 +23,16 @@ from app.pedro.syslogger import setup_logger
 # ======================================================
 # 🧩 环境初始化
 # ======================================================
-basedir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(basedir, ".env")
-if os.path.exists(env_path):
+
+current_dir = pathlib.Path(__file__).resolve().parent
+root_dir = current_dir.parent
+env_path = root_dir / ".env"
+
+if env_path.exists():
     load_dotenv(env_path)
+    print(f"✅ 已加载环境配置: {env_path}")
 else:
-    print(f"⚠️ 未找到 {env_path}")
+    print(f"⚠️ 未找到 .env 文件（期望位置: {env_path}）")
 
 logger = setup_logger("pedro_core")
 

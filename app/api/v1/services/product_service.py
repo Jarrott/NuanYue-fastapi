@@ -1,72 +1,68 @@
-# @Time    : 2025/11/10 05:58
+# -*- coding: utf-8 -*-
+"""
+# @Time    : 2025/11/10 22:31
 # @Author  : Pedro
-# @File    : product_firestore_service.py
+# @File    : product_service.py
 # @Software: PyCharm
-
-from typing import Optional, List
-from google.cloud.firestore_v1 import FieldFilter, And
-from firebase_admin import firestore
-
-from app.api.v1.schema.response import ProductResponse
+"""
+from typing import Optional, Tuple, List
+from app.api.v1.model.shop_product import ShopProduct
 
 
-class ProductFirestoreService:
-    def __init__(self):
-        self.db = firestore.client()
-        self.collection = self.db.collection("shop_products")
+class ProductService:
+    """
+    🧩 Pedro-Core 商品服务层
+    ---------------------------------------------
+    ✅ 基于 BaseCrud.paginate() 的统一分页查询
+    ✅ 支持关键字模糊搜索、多条件过滤、排序
+    ✅ 结果可直接传入 PedroResponse.page()
+    """
 
+    @staticmethod
     async def list_products(
-        self,
+        *,
         keyword: Optional[str] = None,
         category: Optional[str] = None,
-        featured: Optional[bool] = None,
         brand: Optional[str] = None,
+        featured: Optional[bool] = None,
         order_by: str = "id",
         sort: str = "desc",
         page: int = 1,
-        size: int = 10
-    ) -> List[ProductResponse]:
+        size: int = 10,
+    ) -> Tuple[List[ShopProduct], int]:
         """
-        🔎 Firestore 查询商品列表（新版 FieldFilter 语法）
+        🔍 获取商品列表（支持搜索、筛选、分页）
+        ---------------------------------------------
+        :param keyword: 搜索关键词（匹配 title / description / brand）
+        :param category: 商品分类
+        :param brand: 品牌
+        :param featured: 是否推荐商品
+        :param order_by: 排序字段
+        :param sort: 排序方向（asc / desc）
+        :param page: 页码
+        :param size: 每页数量
+        :return: (items, total)
         """
 
-        # 🔹 初始化查询对象
-        query = self.collection
+        # 🔸 构建过滤条件
+        filters = {
+            "category": category,
+            "brand": brand,
+            "featured": featured,
+        }
 
-        # -----------------------------
-        # 🔍 条件过滤 (新版 FieldFilter)
-        # -----------------------------
-        filters = []
-        if category:
-            filters.append(FieldFilter("category", "==", category))
-        if brand:
-            filters.append(FieldFilter("brand", "==", brand))
-        if featured is not None:
-            filters.append(FieldFilter("featured", "==", featured))
+        # 🔸 关键字模糊搜索字段
+        keyword_fields = ["title", "description", "brand"]
 
-        # ✅ 组合多个条件
-        if filters:
-            query = query.where(filter=And(filters))
+        # 🔸 调用通用分页方法
+        items, total = await ShopProduct.paginate(
+            page=page,
+            size=size,
+            filters=filters,
+            keyword=keyword,
+            keyword_fields=keyword_fields,
+            order_by=order_by,
+            sort=sort,
+        )
 
-        # 🔍 关键词搜索 (Firestore 不支持模糊查询，只能精确或前缀匹配)
-        if keyword:
-            query = query.where(filter=FieldFilter("title", ">=", keyword))
-            query = query.where(filter=FieldFilter("title", "<=", keyword + "\uf8ff"))
-
-        # -----------------------------
-        # 🧭 排序
-        # -----------------------------
-        direction = firestore.Query.DESCENDING if sort.lower() == "desc" else firestore.Query.ASCENDING
-        query = query.order_by(order_by, direction=direction)
-
-        # -----------------------------
-        # 📑 分页
-        # -----------------------------
-        offset = (page - 1) * size
-        docs = query.offset(offset).limit(size).stream()
-
-        # -----------------------------
-        # 🔄 转换为 Pydantic 模型
-        # -----------------------------
-        items = [ProductResponse(**doc.to_dict()) for doc in docs]
-        return items
+        return items, total
