@@ -100,10 +100,10 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
     return PedroResponse.success(msg="店铺创建成功，等待审核")
 
 
-@rp.get("/profile", response_model=StoreDetailResponse)
+@rp.get("/profile", response_model=PedroResponse[list[StoreDetailResponse]])
 async def profile(user=Depends(login_required)):
     data = await MerchantService.get_my_store(str(user.id))
-    return PedroResponse.success(data=data)
+    return PedroResponse.success(data=data,schema=CreateStoreSchema)
 
 
 @rp.get("/wallet", response_model=WalletVO)

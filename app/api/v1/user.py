@@ -292,7 +292,7 @@ async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
 
     # ✅ 更新 PGSQL Extra（标记 KYC 提交）
     if data.status == KYCStatus.PENDING.value:
-        await user.set_extra(kyc_status=KYCStatus.PENDING.value)
+        await user.set_extra(kyc_status=False)
 
     return PedroResponse.success(msg="KYC验证已提交，请等待审核")
 

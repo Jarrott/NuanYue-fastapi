@@ -27,41 +27,32 @@ class ProductService:
 
     @staticmethod
     async def list_products(
-        *,
-        keyword: Optional[str] = None,
-        category: Optional[str] = None,
-        brand: Optional[str] = None,
-        featured: Optional[bool] = None,
-        order_by: str = "id",
-        sort: str = "desc",
-        page: int = 1,
-        size: int = 10,
-    ) -> Tuple[List[ShopProduct], int]:
+            *,
+            uid: Optional[str] = None,  # ✅ 新增用户ID
+            keyword: Optional[str] = None,
+            category: Optional[str] = None,
+            brand: Optional[str] = None,
+            featured: Optional[bool] = None,
+            order_by: str = "id",
+            sort: str = "desc",
+            page: int = 1,
+            size: int = 10,
+    ) -> Tuple[List[dict], int]:
         """
-        🔍 获取商品列表（支持搜索、筛选、分页）
+        🔍 获取商品列表（支持搜索、筛选、分页 + 是否收藏）
         ---------------------------------------------
-        :param keyword: 搜索关键词（匹配 title / description / brand）
-        :param category: 商品分类
-        :param brand: 品牌
-        :param featured: 是否推荐商品
-        :param order_by: 排序字段
-        :param sort: 排序方向（asc / desc）
-        :param page: 页码
-        :param size: 每页数量
+        :param uid: 用户ID（可选，用于判断收藏状态）
         :return: (items, total)
         """
 
-        # 🔸 构建过滤条件
         filters = {
             "category": category,
             "brand": brand,
             "featured": featured,
         }
-
-        # 🔸 关键字模糊搜索字段
         keyword_fields = ["title", "description", "brand"]
 
-        # 🔸 调用通用分页方法
+        # 🔸 ORM 分页查询
         items, total = await ShopProduct.paginate(
             page=page,
             size=size,
@@ -72,7 +63,57 @@ class ProductService:
             sort=sort,
         )
 
-        return items, total
+        # 🔸 如果未登录用户，直接返回原结果
+        if not uid:
+            return [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "price": float(p.price),
+                    "stock": int(p.stock or 0),
+                    "images": p.images,
+                    "brand": p.brand,
+                    "category": p.category,
+                    "thumbnail": p.thumbnail,
+                    "sale_price": p.sale_price,
+                    "is_liked": False,  # 匿名用户一律 False
+                }
+                for p in items
+            ], total
+
+        # ✅ 已登录用户 → 批量检测收藏状态
+
+        # ✅ 仅查询当前登录用户的收藏集合
+        try:
+            user_fav_col = f"users/{uid}/favorites"
+            docs = fs_service.db.collection(user_fav_col).stream()
+            user_fav_ids = {doc.id for doc in docs if doc.exists}
+            liked_set = {str(pid) for pid in user_fav_ids}
+        except Exception as e:
+            print(f"[WARN] Firestore 收藏读取失败: {e}")
+            liked_set = set()
+
+        results = []
+        print("[DEBUG] liked_set =", liked_set)
+        for p in items:
+            is_liked = str(p.id) in liked_set
+            results.append({
+                "id": p.id,
+                "title": p.title,
+                "price": float(p.price),
+                "stock": int(p.stock or 0),
+                "images": p.images,
+                "brand": p.brand,
+                "category": p.category,
+                "is_liked": is_liked,
+                "thumbnail": p.thumbnail,
+                "sale_price": p.sale_price,
+            })
+
+            print(f"[DEBUG] product_id={p.id}, is_liked={str(p.id) in liked_set}")
+
+
+        return results, total
 
     @staticmethod
     async def get_detail(uid: str, product_id: int):

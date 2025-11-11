@@ -6,6 +6,7 @@ import jwt
 from jwt import ExpiredSignatureError, InvalidTokenError
 from fastapi import Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import select
 
 from app.api.v1.schema.user import UserAgentSchema
 from app.extension.redis.redis_client import rds
@@ -387,6 +388,36 @@ async def admin_required(user: User = Depends(get_current_user)) -> User:
     if not await user.is_admin():
         raise Forbidden("需要管理员权限")
     return user
+
+async def optional_login(request: Request) -> Optional[User]:
+    """
+    ✅ 可选登录认证（优化版）
+    - 若带合法 Token → 返回用户对象
+    - 若未登录 / Token 无效 → 返回 None
+    """
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.replace("Bearer ", "").strip()
+    try:
+        # ✅ 复用现有 jwt_service.verify（包含版本校验 / Redis 检查 / 设备锁验证）
+        payload = await jwt_service.verify(token, request=request)
+        uid = payload.get("uid")
+        if not uid:
+            return None
+
+        # ✅ 异步获取用户信息
+        async with async_session_factory() as session:
+            user = await manager.find_user(session=session, id=uid)
+            if not user or user.is_deleted:
+                return None
+            return user
+
+    except Exception as e:
+        # ⚠️ 静默失败，不影响游客访问
+        print(f"[optional_login] Token 无效或未登录: {e}")
+        return None
 
 
 class FirebaseAuthService:

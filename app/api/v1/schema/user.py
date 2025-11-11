@@ -151,7 +151,8 @@ class UserInformationSchema(BaseSchema):
     phone: Optional[str] = None
     gender: Optional[int] = None
     birthday: Optional[str] = None
-    kyc_status: Optional[int] = None
+    kyc_status: Optional[bool] = None
+    is_merchant: Optional[bool] = None
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -184,7 +185,8 @@ class UserInformationSchema(BaseSchema):
             phone=extra.get("phone"),
             gender=extra.get("gender"),
             birthday=extra.get("birthday"),
-            kyc_status=extra.get("kyc_status"),
+            kyc_status=extra.get("kyc_status") or False,
+            is_merchant=extra.get("is_merchant") or False,
             lang=setting.get("lang"),
             theme=setting.get("theme"),
             invite_code=referral.get("invite_code"),

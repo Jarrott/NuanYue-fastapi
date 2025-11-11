@@ -82,3 +82,5 @@ class ProductSchema(BaseModel):
     category:str = None
     images: Optional[list] = None
     thumbnail: str = None
+    sale_price: float = None
+    is_liked: Optional[bool] = None

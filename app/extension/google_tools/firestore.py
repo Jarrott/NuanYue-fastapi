@@ -31,7 +31,7 @@ class FirestoreService:
 
     @staticmethod
     def _add_timestamps(data: Dict[str, Any], create: bool = False):
-        now = firestore.SERVER_TIMESTAMP
+        now = firestore.firestore.SERVER_TIMESTAMP
         if create:
             data.setdefault("create_time", now)
         data["update_time"] = now
@@ -117,6 +117,32 @@ class FirestoreService:
         """
         ref = self.db.document(path)
         ref.set(data)
+
+    async def get_multi(self, paths: list[str]):
+        """
+        ✅ 批量获取多个文档（异步并发）
+        :param paths: ['users/123/favorites/1', 'users/123/favorites/2', ...]
+        :return: {doc_id: exists_bool}
+        """
+        async def fetch(path):
+            ref = self.db.document(path)
+            snap = await asyncio.get_event_loop().run_in_executor(None, ref.get)
+            return path.split("/")[-1], snap.exists
+
+        results = await asyncio.gather(*(fetch(p) for p in paths))
+        return {pid: exists for pid, exists in results}
+
+    async def list_documents(self, collection_path: str):
+        """
+        返回某个集合下的所有文档快照列表
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        collection_ref = self.db.collection(collection_path)
+
+        # Firestore 的 stream() 是阻塞操作 → 在线程池执行
+        docs = await loop.run_in_executor(None, lambda: list(collection_ref.stream()))
+        return [doc for doc in docs if doc.exists]
 
 
 # ✅ 实例化单例
