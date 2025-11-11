@@ -283,6 +283,79 @@ class BaseCrud(BaseModel):
             if commit:
                 await session.commit()
 
+    # ======================================================
+    # 🔍 通用模糊查询（多字段 ilike / like）
+    # ======================================================
+    @classmethod
+    async def filter_like(
+            cls: Type[T],
+            *,
+            keyword: str,
+            fields: list[str],
+            filters: Optional[dict] = None,
+            limit: int = 20,
+            sort: str = "desc",
+            order_by: Optional[str] = None,
+    ) -> list[T]:
+        """
+        🔍 多字段模糊匹配查询（非分页）
+        -------------------------------------------------
+        ✅ 传入关键字与字段列表，返回匹配结果
+        ✅ 可同时叠加等值过滤条件
+        ✅ 自动识别 PostgreSQL / SQLite 的 ilike / like
+        ✅ 内部自动处理排序与 limit
+        -------------------------------------------------
+        用法示例：
+            await ShopProduct.filter_like(
+                keyword="面膜",
+                fields=["title", "description", "brand"],
+                limit=10
+            )
+        """
+        from sqlalchemy import or_
+
+        if not keyword or not fields:
+            return []
+
+        async with async_session_factory() as session:
+            stmt = select(cls)
+
+            # 🔹 等值过滤
+            if filters:
+                for k, v in filters.items():
+                    if hasattr(cls, k) and v is not None:
+                        stmt = stmt.where(getattr(cls, k) == v)
+
+            # 🔹 多字段模糊匹配
+            like_pattern = f"%{keyword}%"
+            conditions = []
+            for f in fields:
+                if not hasattr(cls, f):
+                    continue
+                col = getattr(cls, f)
+                if hasattr(col, "ilike"):  # PostgreSQL
+                    conditions.append(col.ilike(like_pattern))
+                else:  # SQLite / MySQL
+                    conditions.append(col.like(like_pattern))
+            if conditions:
+                stmt = stmt.where(or_(*conditions))
+
+            # 🔹 排序
+            if order_by and hasattr(cls, order_by):
+                order_col = getattr(cls, order_by)
+                stmt = stmt.order_by(
+                    desc(order_col) if sort.lower() == "desc" else asc(order_col)
+                )
+            elif hasattr(cls, "id"):
+                stmt = stmt.order_by(desc(cls.id))
+
+            # 🔹 限制数量
+            if limit:
+                stmt = stmt.limit(limit)
+
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
 
 # ======================================================
 # 🕒 通用时间戳 + 软删除

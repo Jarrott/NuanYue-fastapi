@@ -14,7 +14,7 @@ from app.api.v1.schema.merchant import ProductSchema
 from app.api.v1.schema.response import PedroResponse
 from app.api.v1.schema.response import ProductResponse, ProductDetailResponse
 from app.api.v1.services.product_service import ShopProduct, ProductService
-from app.api.v1.schema.user import PageQuery  # 上面定义的分页入参
+from app.api.v1.schema.user import PageQuery, SearchShopSchema, SearchHistoryShopSchema  # 上面定义的分页入参
 from app.pedro.pedro_jwt import login_required
 from app.pedro.response_adapter import PedroResponseAdapter
 
@@ -31,7 +31,6 @@ async def product_list(
         order_by: str = "id",
         sort: str = "desc",
 ):
-
     items, total = await ProductService.list_products(
         keyword=keyword,
         category=category,
@@ -51,15 +50,24 @@ async def product_list(
     )
 
 
-@rp.get("/{product_id}", name="商品详情", response_model=ProductDetailResponse)
+@rp.get("/{product_id}", name="商品详情", response_model=PedroResponse[list[ProductDetailResponse]])
 async def product_detail(product_id: int, current_user=Depends(login_required)):
-    row = await ShopProduct.get(id=product_id)
+    product = await ProductService.get_detail(current_user.id, product_id)
+    return PedroResponse.success(data=product, schema=ProductDetailResponse)
 
-    if not row:
-        return PedroResponse.fail("Product not found")
 
-    # ✅ 转 Pydantic Schema
-    product = ProductDetailResponse.model_validate(row)
+@rp.get("/es/search", name="用户搜索商品")
+async def product_find(keyword:str = Query(), user=Depends(login_required)):
+    product = await ProductService.search_products(user.id, keyword)
+    return product
 
-    # ✅ 直接 success 包装（data 仅在有值时出现）
-    return PedroResponse.success(product)
+
+@rp.get("/search/history", name="用户搜索记录",response_model=PedroResponse[list[SearchHistoryShopSchema]])
+async def search_history(user=Depends(login_required)):
+    history = await ProductService.list_search_history(user.id)
+    return PedroResponse.success(data=history, schema=SearchHistoryShopSchema)
+
+
+@rp.delete("/search/history", summary="清空用户搜索记录")
+async def clear_history(user=Depends(login_required)):
+    return await ProductService.clear_search_history(user.id)

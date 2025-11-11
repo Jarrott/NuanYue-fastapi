@@ -19,7 +19,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import load_only
 
 from app.extension.google_tools.firebase_admin_service import fs
-from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP
+from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP, fs_service
 
 from app.api.v1.model.shop_product import ShopProduct
 from app.pedro.db import async_session_factory
@@ -299,3 +299,40 @@ class MerchantService:
             docs = query.stream()
 
         return [doc.to_dict() for doc in docs if doc.exists]
+
+    # ==============================================================
+    # 🏪 查询自己店铺详情
+    # ==============================================================
+    @staticmethod
+    async def get_my_store(uid: str):
+        """
+        🏪 获取当前用户的店铺档案
+        Firestore 路径: users/{uid}/store/profile
+        """
+        try:
+            doc = await fs_service.get(f"users/{uid}/store/profile")
+            if not doc:
+                return PedroResponse.fail(msg="未找到店铺档案，请先开通店铺")
+            return doc
+        except Exception as e:
+            print(f"[ERROR] 获取店铺信息失败: {e}")
+            return PedroResponse.fail(msg="获取店铺信息失败")
+
+    # ==============================================================
+    # 💰 查询自己钱包余额
+    # ==============================================================
+    @staticmethod
+    async def get_my_wallet(uid: str):
+        """
+        💰 获取当前用户钱包余额
+        Firestore 路径: users/{uid}/store/wallet
+        """
+        try:
+            wallet_doc = await fs_service.get(f"users/{uid}/store/wallet")
+            if not wallet_doc:
+                return PedroResponse.fail(msg="钱包信息不存在，请联系客服")
+            return wallet_doc
+        except Exception as e:
+            print(f"[ERROR] 获取钱包失败: {e}")
+            return PedroResponse.fail(msg="获取钱包信息失败")
+

@@ -280,6 +280,9 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
 @rp.post("/kyc", name="用户提交认证")
 async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
     uid = user.id
+    snap = await fs_service.get(f"users/{uid}/kyc/info")
+    if snap:
+        return PedroResponse.fail(msg="申请已经提交。请勿重复提交审核")
 
     # ✅ 写入 Firestore
     await fs_service.set(
@@ -295,7 +298,7 @@ async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
 
 
 @rp.post("/toggle", name="喜欢的商品")
-async def toggle_favorite(data:ToggleSchema,user=Depends(login_required)):
+async def toggle_favorite(data: ToggleSchema, user=Depends(login_required)):
     product = await ShopProduct.get(id=data.product_id)
 
     if not product:

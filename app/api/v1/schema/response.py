@@ -138,6 +138,7 @@ class ProductDetailResponse(ProductResponse):
     reviews: Optional[list] = None
     shipping_info: Optional[str] = None
     warranty_info: Optional[str] = None
+    is_liked: Optional[bool] = None
 
 class CategoryResponse(ORMBase):
     id: int

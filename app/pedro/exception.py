@@ -99,6 +99,29 @@ def _safe_err_msg(exc: Exception) -> str:
     return "服务器内部异常，请稍后重试"
 
 
+# ✅ 新增：递归检测 Firestore 索引错误
+def _contains_firestore_index_error(exc: Exception) -> Optional[str]:
+    """递归检查异常链中是否包含 Firestore index 缺失提示"""
+    msg = str(exc)
+    if "The query requires an index" in msg:
+        match = re.search(r"(https://console\.firebase\.google\.com[^\s]+)", msg)
+        return match.group(1) if match else None
+
+    if hasattr(exc, "exceptions"):  # ExceptionGroup
+        for inner in exc.exceptions:
+            url = _contains_firestore_index_error(inner)
+            if url:
+                return url
+
+    if hasattr(exc, "__cause__") and exc.__cause__:
+        return _contains_firestore_index_error(exc.__cause__)
+
+    if hasattr(exc, "__context__") and exc.__context__:
+        return _contains_firestore_index_error(exc.__context__)
+
+    return None
+
+
 def register_exception_handlers(app):
 
     @app.exception_handler(APIException)
@@ -115,11 +138,9 @@ def register_exception_handlers(app):
     async def unhandled_exception_handler(request: Request, exc: Exception):
         trace_id = uuid.uuid4().hex[:8]
 
-        # ✅ Firestore 索引缺失检测
-        msg = str(exc)
-        if "The query requires an index" in msg:
-            match = re.search(r"(https://console\.firebase\.google\.com[^\s]+)", msg)
-            index_url = match.group(1) if match else None
+        # ✅ Firestore 索引缺失检测（支持多层嵌套）
+        index_url = _contains_firestore_index_error(exc)
+        if index_url:
             pretty_msg = (
                 "🔥 Firestore 查询缺少索引，请点击以下链接在 Firebase Console 创建：\n\n"
                 f"{index_url}\n\n"
@@ -186,4 +207,40 @@ def register_exception_handlers(app):
                     )
             except:
                 pass
+        return response
+
+    # ---------------------------
+    # 🧩 全局响应翻译中间件（新增）
+    # ---------------------------
+    @app.middleware("http")
+    async def global_i18n_response(request: Request, call_next):
+        # 🧩 跳过 WebSocket
+        if request.headers.get("upgrade", "").lower() == "websocket":
+            return await call_next(request)
+
+        response = await call_next(request)
+
+        if "application/json" in response.headers.get("content-type", ""):
+            try:
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk
+                data = json.loads(body)
+
+                # 检测是否存在 msg 字段
+                if isinstance(data, dict) and "msg" in data:
+                    lang_header = (request.headers.get("Accept-Language") or "zh").split(",")[0].strip().lower()
+                    lang = lang_header.replace("_", "-").split("-")[0]
+                    data["msg"] = await translate_message(data["msg"], lang)
+
+                new_body = json.dumps(data).encode()
+                return Response(
+                    content=new_body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type="application/json"
+                )
+            except Exception as e:
+                logger.logger.warning(f"[global_i18n_response] Failed: {e}")
+
         return response

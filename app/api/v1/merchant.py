@@ -102,13 +102,13 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
 
 @rp.get("/profile", response_model=StoreDetailResponse)
 async def profile(user=Depends(login_required)):
-    data = await MerchantService.get_profile(str(user.id))
-    return PedroResponse.success(data)
+    data = await MerchantService.get_my_store(str(user.id))
+    return PedroResponse.success(data=data)
 
 
 @rp.get("/wallet", response_model=WalletVO)
 async def wallet(user=Depends(login_required)):
-    data = await MerchantService.get_wallet(str(user.id))
+    data = await MerchantService.get_my_wallet(str(user.id))
     return PedroResponse.success(data=data)
 
 

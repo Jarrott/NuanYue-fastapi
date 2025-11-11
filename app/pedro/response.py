@@ -14,10 +14,13 @@ Pedro-Core 通用响应模型（自动过滤 + ORM兼容 + 分页支持 + Decima
 import json
 import datetime
 from decimal import Decimal
+from fastapi import Request
 from typing import Any, Generic, Optional, Type, TypeVar, Iterable
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic.generics import GenericModel
 from starlette.responses import JSONResponse
+
+from app.extension.i18n.i18n_exception import translate_message
 
 T = TypeVar("T")
 
@@ -158,9 +161,16 @@ class PedroResponse(GenericModel, Generic[T]):
         msg: str = "success",
         code: int = 0,
         schema: Optional[Type[BaseModel]] = None,
+        request: Optional[Request] = None,  # ✅ 新增 request 以获取语言
     ):
         """统一成功响应"""
         try:
+            # ✨ 自动翻译消息
+            if request:
+                lang_header = (request.headers.get("Accept-Language") or "zh").split(",")[0].strip().lower()
+                lang = lang_header.replace("_", "-").split("-")[0]
+                msg = translate_message(msg, lang)
+
             if schema is not None and data is not None:
                 data = _filter_with_schema(schema, data)
             elif isinstance(data, list):
@@ -168,7 +178,10 @@ class PedroResponse(GenericModel, Generic[T]):
             elif data is not None:
                 data = cls._safe_model_dump(data)
 
-            payload = {"code": code, "msg": msg, "data": serialize(data)}
+            payload = {"code": code, "msg": msg}
+            if data not in (None, [], {}):
+                payload["data"] = serialize(data)
+
         except Exception as e:
             payload = {"code": 500, "msg": f"响应构建失败: {e}", "data": None}
 

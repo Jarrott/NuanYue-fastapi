@@ -292,3 +292,9 @@ class StoreSchema(BaseModel):
     level: Optional[str] = None
     logo: Optional[str] = None
     store_name:Optional[str] = None
+
+class SearchShopSchema(BaseModel):
+    keyword: Optional[str] = None
+
+class SearchHistoryShopSchema(BaseModel):
+    keyword: Optional[str] = None
