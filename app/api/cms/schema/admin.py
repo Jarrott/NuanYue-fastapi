@@ -5,6 +5,7 @@
 # @Software: PyCharm
 """
 from decimal import Decimal, InvalidOperation
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,6 +38,7 @@ class DevicesStatusSchema(BaseModel):
     user_id: int = None
     approve: bool = False
 
+
 class ManualCreditSchema(BaseModel):
     user_id: int
     amount: Decimal
@@ -51,6 +53,7 @@ class ManualCreditSchema(BaseModel):
             return Decimal(str(v).strip())
         except InvalidOperation:
             raise ValueError(f"无效金额格式: {v}")
+
 
 class ManualDebitSchema(BaseModel):
     """管理员手动扣款参数"""
@@ -73,8 +76,13 @@ class ManualDebitSchema(BaseModel):
             raise ValueError("无效金额格式，必须为数字类型")
         return v
 
+
 class MockCreateOrderSchema(BaseModel):
     """管理员手动扣款参数"""
     merchant_id: int = Field(..., description="商户ID")
     per_user: int = Field(..., description="每个mock下单的数量")
     user_count: int = Field(..., gt=0, description="下单用户数量")
+
+
+class PushMessageSchema(BaseModel):
+    data: Optional[str] = None

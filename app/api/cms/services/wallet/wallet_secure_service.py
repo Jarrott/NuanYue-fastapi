@@ -56,6 +56,11 @@ class WalletSecureService:
                 "available_balance": Increment(float(delta)),
                 "updated_at": SERVER_TIMESTAMP,
                 "currency": currency,
+                "freeze": 0.0,
+                "is_active": True,
+                "source": "system_auto",
+                "created_at": SERVER_TIMESTAMP,
+                "last_txn": None,
             }, merge=True)
 
             transaction.set(ledger_ref, {
@@ -126,6 +131,11 @@ class WalletSecureService:
                 "available_balance": Increment(-float(dec_amount)),
                 "updated_at": SERVER_TIMESTAMP,
                 "currency": currency,
+                "freeze": 0.0,
+                "is_active": True,
+                "source": "system_auto",
+                "created_at": SERVER_TIMESTAMP,
+                "last_txn": None,
             }, merge=True)
 
             transaction.set(ledger_ref, {

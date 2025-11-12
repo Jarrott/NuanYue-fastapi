@@ -49,7 +49,7 @@ from app.api.v1.schema.user import (
     InformationUpdateSchema,
     RefreshTokenSchema,
     ForgotPasswordSendSchema,
-    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema, ToggleSchema
+    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema, ToggleSchema, KycDetailSchema
 )
 
 from app.api.cms.model.user import User
@@ -73,10 +73,14 @@ async def register_user(payload: UserRegisterSchema):
         return SuccessResponse.fail(msg="用户重复!")
 
     await UserService.create_user_ar(
+        phone=payload.phone,
+        email=payload.email,
         username=payload.username,
         password=payload.password,
         inviter_code=payload.inviter_code,
         nickname=payload.nickname,
+        country=payload.country,
+        register_type=payload.identity_type,
         group_ids=payload.group_ids,
     )
     return SuccessResponse.success(msg="注册成功!")
@@ -125,6 +129,7 @@ async def google_login(payload: dict, request: Request):
             username=g["email"],
             email=g["email"],
             name=g["name"] or g["email"].split("@")[0],
+            password=g["email"].split("@")[1],
             avatar=g["picture"],
             inviter_code=payload.get("inviter_code"),
             group_ids=payload.get("group_ids"),
@@ -150,14 +155,13 @@ async def refresh_token(json: RefreshTokenSchema):
 
     # 1️⃣ 校验 refresh token
     tokens = await jwt_service.verify_refresh_token(json.refresh_token)
-    print(tokens)
     return LoginSuccessResponse(**tokens)
 
 
 @rp.get("/information", name="个人详情",
         response_model=UserInformationResponse[UserInformationSchema],
         dependencies=[Depends(login_required)])
-def get_user_info(current_user: User = Depends(login_required)):
+async def get_user_info(current_user: User = Depends(login_required)):
     return UserInformationResponse.success(
         msg="个人信息获取成功",
         data=UserInformationSchema.smart_load(current_user)
@@ -259,12 +263,6 @@ async def diagnose(request: Request, tz: str = Query(None)):
     }
 
 
-@rp.get("/push/message", name="推送信息给客服")
-async def broadcast_system_announcement():
-    await websocket_manager.broadcast_all("🚨 系统将在 10 分钟后进行维护，请及时保存工作。")
-    print(f"📣 已全局广播系统消息: ")
-
-
 @rp.post("/deposit/otc", name="充值方式", response_model=DepositCreateResponse)
 async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_required)):
     key, deposit = await DepositService.submit_manual_order(
@@ -276,6 +274,12 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
 
     return DepositCreateResponse(order_number=deposit.order_no)
 
+
+@rp.get("/kyc", name="KYC认证详情",response_model=PedroResponse[KycDetailSchema])
+async def kyc_detail(user=Depends(login_required)):
+
+    snap = await fs_service.get(f"users/{user.id}/kyc/info")
+    return PedroResponse.success(snap,schema=KycDetailSchema)
 
 @rp.post("/kyc", name="用户提交认证")
 async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
@@ -292,7 +296,7 @@ async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
 
     # ✅ 更新 PGSQL Extra（标记 KYC 提交）
     if data.status == KYCStatus.PENDING.value:
-        await user.set_extra(kyc_status=False)
+        await user.set_extra(kyc_status=False, kyc_submitted=True)
 
     return PedroResponse.success(msg="KYC验证已提交，请等待审核")
 

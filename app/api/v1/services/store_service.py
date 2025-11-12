@@ -184,7 +184,7 @@ class MerchantService:
         """
         path = f"users/{uid}/store/meta/purchases"
         query = (
-            fs.db.collection(path)
+            fs_service.db.collection(path)
             .order_by("created_at", direction=firestore.Query.DESCENDING)  # ✅ 与写入字段一致
             .limit(limit)
         )
@@ -280,7 +280,7 @@ class MerchantService:
         若缺少 created_at 字段则自动回退到 __name__ 排序。
         """
         path = f"users/{uid}/store/meta/orders"
-        col = fs.db.collection(path)
+        col = fs_service.db.collection(path)
 
         try:
             query = (
@@ -322,17 +322,92 @@ class MerchantService:
     # 💰 查询自己钱包余额
     # ==============================================================
     @staticmethod
-    async def get_my_wallet(uid: str):
+    async def get_or_create_wallet(uid: str):
         """
-        💰 获取当前用户钱包余额
+        ✅ 获取钱包，如果不存在则自动创建一个空钱包
         Firestore 路径: users/{uid}/store/wallet
         """
+        wallet_path = f"users/{uid}/store/wallet"
+
         try:
-            wallet_doc = await fs_service.get(f"users/{uid}/store/wallet")
+            # 1️⃣ 获取钱包文档（基于你的 async 封装）
+            wallet_doc = await fs_service.get(wallet_path)
+
+            # 2️⃣ 不存在 → 自动创建
             if not wallet_doc:
-                return PedroResponse.fail(msg="钱包信息不存在，请联系客服")
+                default_wallet = {
+                    "available_balance": 0.0,
+                    "freeze": 0.0,
+                    "currency": "USD",
+                    "is_active": True,
+                    "source": "system_auto",
+                    "created_at": SERVER_TIMESTAMP,
+                    "updated_at": SERVER_TIMESTAMP,
+                    "last_txn": None,
+                }
+
+                await fs_service.set(wallet_path, default_wallet)
+                print(f"[INFO] ✅ 为用户 {uid} 自动创建默认钱包")
+
+                return PedroResponse.success(
+                    data=default_wallet,
+                    msg="✅ 钱包不存在，已自动创建空钱包"
+                )
+
+            # 3️⃣ 存在 → 直接返回
             return wallet_doc
+
         except Exception as e:
-            print(f"[ERROR] 获取钱包失败: {e}")
-            return PedroResponse.fail(msg="获取钱包信息失败")
+            print(f"[ERROR] 获取或创建钱包失败: {e}")
+            return PedroResponse.fail(msg=f"❌ 钱包操作失败: {str(e)}")
+
+    @staticmethod
+    async def list_all_store_applications(
+            status: str | None = None,
+            keyword: str | None = None,
+            page: int = 1,
+            page_size: int = 20,
+    ) -> PedroResponse:
+        """
+        🔍 查询所有用户的商铺申请（跨用户）
+        Firestore 路径: users/{uid}/store/profile
+        支持：
+            - status: pending / verified / rejected
+            - keyword: 支持匹配 store_name / email
+            - page / page_size: 手动分页
+        """
+
+        # collection_group 能够跨所有用户目录查询 profile 文档
+        query = fs_service.db.collection_group("store").order_by(
+            "create_time", direction=firestore.Query.DESCENDING
+        )
+
+        if status:
+            query = query.where("status", "==", status)
+
+        # Firestore 不支持复杂模糊搜索，这里我们在客户端过滤 keyword
+        docs = query.stream()
+        all_docs = [doc.to_dict() for doc in docs if doc.id == "profile"]
+
+        if keyword:
+            keyword_lower = keyword.lower()
+            all_docs = [
+                d for d in all_docs
+                if keyword_lower in str(d.get("store_name", "")).lower()
+                or keyword_lower in str(d.get("email", "")).lower()
+            ]
+
+        total = len(all_docs)
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_items = all_docs[start:end]
+
+
+        return PedroResponse.page(
+            items=page_items,
+            total=total,
+            page=page,
+            size=page_size,
+            msg="✅ 所有商家申请获取成功"
+        )
 

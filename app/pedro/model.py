@@ -137,6 +137,33 @@ class User(AbstractUser, BaseModel):
         extra.update(data)
         return await self.update(commit=True, extra=extra)
 
+    @classmethod
+    async def update_extra_by_id(cls, user_id: int, data: dict, *, commit: bool = True) -> bool:
+        """
+        ✅ 根据 user_id 安全更新 extra（ORM风格）
+        --------------------------------------------------------
+        - 自动合并 JSONB，不会覆盖原数据
+        - 若用户不存在则返回 False
+        - commit=True 自动提交，否则返回未提交对象
+        """
+        if not data:
+            return False
+
+        async with async_session_factory() as session:
+            result = await session.execute(select(cls).where(cls.id == user_id))
+            user = result.scalar_one_or_none()
+
+            if not user:
+                return False  # ❌ 用户不存在
+
+            # 🔄 合并 JSONB
+            user.extra = {**(user.extra or {}), **data}
+
+            session.add(user)
+            if commit:
+                await session.commit()
+            return True
+
     def get_extra(self, key: str, default=None):
         return (self.extra or {}).get(key, default)
 

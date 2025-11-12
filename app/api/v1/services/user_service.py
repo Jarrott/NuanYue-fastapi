@@ -11,12 +11,17 @@ from app.api.cms.model.user import User
 from app.api.cms.model.user_group import UserGroup
 from app.extension.redis.redis_client import rds
 from app.pedro.exception import ParameterError
+from app.util.generate_id import snowflake
 from app.util.invite_services import assign_invite_code, bind_inviter_relation
 from app.pedro.enums import GroupLevelEnum
 
 
 class UserService:
 
+    @staticmethod
+    async def list_users():
+        users = await User.get(one=False)
+        return users
     @staticmethod
     async def create_user_ar(
             *,
@@ -28,6 +33,9 @@ class UserService:
             group_ids: list[int] | None = None,
             nickname: str | None = None,
             itu:int | None = None,
+            country:str | None = None,
+            register_type: str | None = None,
+            phone: str | None = None,
     ) -> User:
         """
         使用模型自带的 Active Record 方法，不传 session。
@@ -37,6 +45,7 @@ class UserService:
             username=username,
             email=email,
             nickname=nickname,
+            uuid=snowflake.generate_id(),
             _avatar=avatar,
             commit=True,
         )
@@ -47,6 +56,9 @@ class UserService:
         await assign_invite_code(user)
         if inviter_code:
             await bind_inviter_relation(user, inviter_code)
+
+
+        await user.set_extra(register_type=register_type,phone=phone)
 
 
 

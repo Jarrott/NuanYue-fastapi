@@ -21,15 +21,17 @@ from app.api.cms.schema.admin import (
     FirebaseCreateUserSchema,
     KYCReviewSchema,
     ManualCreditSchema,
-    MockCreateOrderSchema)
+    MockCreateOrderSchema, PushMessageSchema)
 
 from app.api.cms.services.admin_ledger_service import AdminLedgerService
 from app.api.cms.services.firebase_admin_service import FirebaseAdminService
+from app.api.cms.services.kyc_review_service import KYCService
 from app.api.cms.services.orders.mock_order_service import MockOrderService
 from app.api.cms.services.user_wallet_service import AdminWalletService
 from app.api.v1.schema.response import SuccessResponse
 from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
 from app.api.cms.services.wallet.wallet_sync_service import WalletSyncService
+from app.api.v1.services.user_service import UserService
 from app.extension.google_tools.firestore import fs_service
 from app.extension.redis.redis_client import rds
 from app.extension.websocket.tasks.ws_user_notify import notify_user, notify_broadcast
@@ -55,11 +57,10 @@ async def broadcast_system_announcement(msg: AdminBroadcastSchema):
 
 @rp.post("/push/message/{uid}", response_model=SuccessResponse,
          dependencies=[Depends(admin_required)])
-async def broadcast_user_message(uid: int):
+async def broadcast_user_message(uid: int,data: PushMessageSchema):
     await notify_user(uid, {
-        "event": "order_created",
-        "order_id": 9876,
-        "msg": "订单创建成功 ✅"
+        "event": "message_user",
+        "msg": data.data
     })
 
     return SuccessResponse.success(msg="信息已成功推送")
@@ -188,7 +189,8 @@ async def switch_market(state: int):
     """ state: 1 开启 | 0 关闭 币安数据推送ws"""
     r = await rds.instance()
     await r.set("binance:push:enabled", str(state))
-    return {"status": "ok", "enabled": state}
+    status = "开启" if state==1 else "关闭"
+    return PedroResponse.success(msg=f"状态：{status}成功!")
 
 
 @rp.post("/create-user")
@@ -219,17 +221,9 @@ async def create_firebase_user(data: FirebaseCreateUserSchema):
 @rp.put("/kyc/review", name="审核KYC内容")
 async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     uid = data.user_id
-
-    # ✅ Firestore 更新审核记录
-    await fs_service.update(
-        path=f"users/{uid}/kyc/info",
-        data={
-            "status": "approved" if data.approve else "rejected",
-            "review_by": admin.id,
-            "review_reason": data.reason or "",
-        }
-    )
-
+    check = await KYCService.review_kyc(uid=str(uid), admin_id=admin.id,data=data)
+    if not check:
+        return PedroResponse.fail(msg="审核失败")
     # ✅ 更新 PGSQL 用户扩展字段
     user = await User.get(id=uid)
     new_status = KYCStatus.APPROVED.value if data.approve else KYCStatus.REJECTED.value
@@ -247,3 +241,4 @@ async def mock_orders(data: MockCreateOrderSchema):
         user_count=data.user_count,
         per_user=data.per_user,
     )
+

@@ -24,7 +24,9 @@ from sqlalchemy import (
     text,
     asc,
     desc,
+    BigInteger
 )
+from sqlalchemy.dialects.mysql import BIGINT
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import declarative_mixin
@@ -49,15 +51,15 @@ class BaseCrud(BaseModel):
     # ======================================================
     @classmethod
     async def get(
-        cls: Type[T],
-        *,
-        one: bool = True,
-        query=None,
-        order_by: str | None = None,
-        sort: str = "asc",
-        offset: int | None = None,
-        limit: int | None = None,
-        **filters: Any,
+            cls: Type[T],
+            *,
+            one: bool = True,
+            query=None,
+            order_by: str | None = None,
+            sort: str = "asc",
+            offset: int | None = None,
+            limit: int | None = None,
+            **filters: Any,
     ) -> Union[Optional[T], list[T]]:
         """
         通用查询：
@@ -423,9 +425,9 @@ class AbstractPermission(InfoCrud):
 
     def __eq__(self, other: object) -> bool:
         return (
-            isinstance(other, AbstractPermission)
-            and self.name == other.name
-            and self.module == other.module
+                isinstance(other, AbstractPermission)
+                and self.name == other.name
+                and self.module == other.module
         )
 
 
@@ -452,6 +454,7 @@ class AbstractUser(InfoCrud):
     nickname = Column(String(24), comment="昵称")
     _avatar = Column(String(500), comment="头像URL")
     email = Column(String(100), unique=True, index=True, comment="邮箱")
+    uuid = Column(BigInteger, unique=True, index=True, comment="UUID")
 
     from sqlalchemy.dialects.postgresql import JSONB
     extra = Column(

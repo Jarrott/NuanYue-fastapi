@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.cms.model import User
 from app.api.cms.schema.admin import DevicesStatusSchema
+from app.api.v1.services.store_service import MerchantService
 from app.extension.redis.redis_client import rds
 from app.pedro.pedro_jwt import admin_required
 from app.pedro.response import PedroResponse
@@ -30,3 +31,7 @@ async def admin_device_verify(data: DevicesStatusSchema, admin=Depends(admin_req
     return PedroResponse.success(msg=f"设备验证{"开启" if data.approve else "关闭"}成功!")
 
 
+@rp.get("/")
+async def get_merchant():
+    merchants = await MerchantService.list_all_store_applications()
+    return merchants

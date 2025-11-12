@@ -108,8 +108,8 @@ async def profile(user=Depends(login_required)):
 
 @rp.get("/wallet", response_model=WalletVO)
 async def wallet(user=Depends(login_required)):
-    data = await MerchantService.get_my_wallet(str(user.id))
-    return PedroResponse.success(data=data)
+    data = await MerchantService.get_or_create_wallet(str(user.id))
+    return PedroResponse.success(data=data,schema=WalletVO)
 
 
 @rp.post("/withdraw")

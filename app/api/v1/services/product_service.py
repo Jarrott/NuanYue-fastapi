@@ -81,8 +81,6 @@ class ProductService:
                 for p in items
             ], total
 
-        # ✅ 已登录用户 → 批量检测收藏状态
-
         # ✅ 仅查询当前登录用户的收藏集合
         try:
             user_fav_col = f"users/{uid}/favorites"
@@ -94,7 +92,6 @@ class ProductService:
             liked_set = set()
 
         results = []
-        print("[DEBUG] liked_set =", liked_set)
         for p in items:
             is_liked = str(p.id) in liked_set
             results.append({
@@ -109,8 +106,6 @@ class ProductService:
                 "thumbnail": p.thumbnail,
                 "sale_price": p.sale_price,
             })
-
-            print(f"[DEBUG] product_id={p.id}, is_liked={str(p.id) in liked_set}")
 
 
         return results, total
@@ -139,6 +134,7 @@ class ProductService:
             "images": product.images,
             "rating": product.rating,
             "discount": product.discount,
+            "thumbnail": product.thumbnail,
             "is_liked": is_liked,  # ✅ 关键字段
         }
         return data
@@ -185,6 +181,8 @@ class ProductService:
         except Exception as e:
             print(f"[WARN] 写入搜索历史失败: {e}")
 
+        fav_docs = await fs_service.list_documents(f"users/{uid}/favorites")
+        fav_ids = {doc.id for doc in fav_docs}
         # 3️⃣ 构建响应
         data = [
             {
@@ -193,7 +191,9 @@ class ProductService:
                 "price": float(p.price),
                 "stock": int(p.stock or 0),
                 "images": p.images,
+                "thumbnail": p.thumbnail,
                 "rating": getattr(p, "rating", None),
+                "is_liked": bool(str(p.id) in fav_ids),  # ✅ 确保为布尔值 True/False
                 "discount": getattr(p, "discount", None),
             }
             for p in products

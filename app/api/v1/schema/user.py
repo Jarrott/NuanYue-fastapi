@@ -5,12 +5,16 @@
 # @Software: PyCharm
 """
 import re
+import phonenumbers
+from phonenumbers import PhoneNumberFormat, region_code_for_country_code
 from datetime import datetime
-from typing import List, Optional, Any, Dict, Self, Literal
-from pydantic import Field, validator, EmailStr, field_serializer
+from typing import List, Optional, Any, Dict, Self, Literal, Union
+from pydantic import Field, validator, EmailStr, field_serializer, field_validator, computed_field, model_validator
 from user_agents import parse as ua_parse
 from fastapi import Query
 from app.api.cms.schema import GroupIdListSchema, EmailSchema
+from app.extension.google_tools.fs_transaction import fs_service
+from app.pedro.enums import KYCStatus
 from app.pedro.exception import BaseModel, ParameterError
 
 
@@ -67,10 +71,79 @@ class UserRegisterSchema(BaseModel):
     password: str = Field(description="密码", min_length=6, max_length=22)
     group_ids: List[int] = Field(description="用户组,前端客户默认3", default=[3])
     inviter_code: str = Field(default=None)
-    phone: int = Field(default=None)
+    phone: str = Field(default=None)
     first_name: str = Field(default=None)
     last_name: str = Field(default=None)
     nickname: str = Field(default=None)
+    country: str = Field(default=None)
+    register_type: str = Field(default=None)
+    email: str = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_and_extract(cls, data: dict):
+        """
+        ✅ 自动识别邮箱 / 手机 / 用户名，并提取字段
+        -------------------------------------------------
+        📧 邮箱: 提取 local_part 作为 username，保留完整 email
+        📱 手机: 提取 E.164 格式 + national number，确保唯一性
+        🧩 普通用户名: 保留原始值
+        """
+        if not isinstance(data, dict):
+            return data
+
+        value = data.get("username", "").strip()
+        if not value:
+            return data
+
+        # ============================================================
+        # 📧 邮箱注册
+        # ============================================================
+        if re.match(r"^[^@]+@[^@]+\.[^@]+$", value):
+            local_part, domain = value.split("@", 1)
+            domain_prefix = domain.split(".")[0][:2].lower()
+            base_username = f"{local_part.lower()}_{domain_prefix}"
+
+            data["email"] = value.lower()
+            data["identity_type"] = "EMAIL"
+            data["username"] = base_username
+            return data
+
+        # ============================================================
+        # 📱 手机注册（自动识别国家码、national_number）
+        # ============================================================
+        if value.startswith("+"):
+            try:
+                phone_obj = phonenumbers.parse(value, None)
+                e164 = phonenumbers.format_number(phone_obj, PhoneNumberFormat.E164)
+                national = str(phone_obj.national_number)
+                country_code = phone_obj.country_code
+                region = region_code_for_country_code(country_code)
+
+
+                data["phone"] = e164
+                data["username"] = f"{national}_{region}"
+                data["identity_type"] = "PHONE"
+                data["country"] = region
+                return data
+
+            except phonenumbers.NumberParseException:
+                pass  # fallback 到普通用户名逻辑
+
+        # ============================================================
+        # 🧩 普通用户名注册
+        # ============================================================
+        data["identity_type"] = "USERNAME"
+        data["username"] = value.lower()
+        return data
+
+    @property
+    def identity_type(self):
+        if "@" in self.username:
+            return "EMAIL"
+        elif re.match(r"^\+?\d{6,20}$", self.username):
+            return "PHONE"
+        return "USERNAME"
 
 
 class UserInformationUpdateSchema(BaseModel):
@@ -78,12 +151,75 @@ class UserInformationUpdateSchema(BaseModel):
 
 
 class LoginSchema(BaseModel):
-    username: str = Field(description="用户名")
+    username: str = Field(description="用户名 / 邮箱 / 手机号")
     password: str = Field(description="密码")
-    captcha: Optional[str] = Field(description="验证码", default=None)
-    remember_me: str = Field(description="是否信任此设备", default="false")
+    captcha: Optional[str] = Field(default=None, description="验证码")
+    remember_me: str = Field(default="false", description="是否信任此设备")
     password_encrypted: bool = Field(default=False, description="用户登录密码是否明文传入")
 
+    # 额外解析字段
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    identity_type: Optional[str] = None
+    country: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_username(cls, data: dict):
+        """
+        ✅ 自动识别邮箱 / 手机 / 普通用户名
+        让登录时的 username 与注册完全一致（内部标准化）
+        --------------------------------------------------
+        - 邮箱: 保留完整 email, username = local_part
+        - 手机: 转换为国际 E.164 格式, username = national number
+        - 普通用户名: 原样转小写
+        """
+        if not isinstance(data, dict):
+            return data
+
+        value = str(data.get("username", "")).strip()
+        if not value:
+            return data
+
+        # ============================================================
+        # 📧 邮箱登录
+        # ============================================================
+        if re.match(r"^[^@]+@[^@]+\.[^@]+$", value):
+            local_part, domain = value.split("@", 1)
+            domain_prefix = domain.split(".")[0][:2].lower()
+            base_username = f"{local_part.lower()}_{domain_prefix}"
+
+            data["email"] = value.lower()
+            data["identity_type"] = "EMAIL"
+            data["username"] = base_username
+            return data
+
+        # ============================================================
+        # 📱 手机号登录 (+81 或 +1 或 +44 等)
+        # ============================================================
+        if value.startswith("+"):
+            try:
+                phone_obj = phonenumbers.parse(value, None)
+                e164 = phonenumbers.format_number(phone_obj, PhoneNumberFormat.E164)
+                national = str(phone_obj.national_number)
+                country_code = phone_obj.country_code
+                region = region_code_for_country_code(country_code)
+
+                data["phone"] = e164
+                data["identity_type"] = "PHONE"
+                data["username"] = f"{national}_{region}"
+                data["country"] = region
+                return data
+
+            except phonenumbers.NumberParseException:
+                pass
+
+        # ============================================================
+        # 🧩 普通用户名登录
+        # ============================================================
+        data["identity_type"] = "USERNAME"
+        data["username"] = value.lower()
+        return data
 
 class LoginTokenSchema(BaseModel):
     access_token: str = Field(description="access_token")
@@ -153,6 +289,7 @@ class UserInformationSchema(BaseSchema):
     birthday: Optional[str] = None
     kyc_status: Optional[bool] = None
     is_merchant: Optional[bool] = None
+    kyc_submitted: Optional[bool] = False
 
     class Config:
         from_attributes = True  # ✅ 代替 orm_mode
@@ -190,7 +327,8 @@ class UserInformationSchema(BaseSchema):
             lang=setting.get("lang"),
             theme=setting.get("theme"),
             invite_code=referral.get("invite_code"),
-            device_info=sensitive.get("login_devices")
+            device_info=sensitive.get("login_devices"),
+            kyc_submitted=extra.get("kyc_submitted"),
         )
 
 
@@ -271,7 +409,8 @@ class UserKycSchema(BaseModel):
     # 联系方式
     contact_email: Optional[EmailStr] = Field(None, description="联系邮箱")
     contact_phone: Optional[str] = Field(None, description="联系电话")
-    status: int = Field(default=0, description="认证状态")
+    status: int = Field(default=0, description="认证状态,pending等")
+    kyc_status:bool = Field(default=False, description="认证最终结果")
 
     # 可选备注
     remark: Optional[str] = Field("", description="备注，可输入审核说明")
@@ -286,6 +425,7 @@ class CreateShopSchema(BaseModel):
     amount: float = None
     quantity: int = None
 
+
 class StoreSchema(BaseModel):
     address: Optional[str] = None
     lang: Optional[str] = None
@@ -293,10 +433,50 @@ class StoreSchema(BaseModel):
     avatar: Optional[str] = None
     level: Optional[str] = None
     logo: Optional[str] = None
-    store_name:Optional[str] = None
+    store_name: Optional[str] = None
+
 
 class SearchShopSchema(BaseModel):
     keyword: Optional[str] = None
 
+
 class SearchHistoryShopSchema(BaseModel):
     keyword: Optional[str] = None
+
+class KycDetailSchema(BaseModel):
+    id_back_url: Optional[str] = None
+    review_reason: Optional[str] = None
+    id_number: Optional[str] = None
+    dob: Optional[str] = None  # 出生日期 (YYYY-MM-DD)
+    selfie_url: Optional[str] = None
+    id_type: Optional[str] = None  # 证件类型 (passport / id_card)
+    nationality: Optional[str] = None  # 国籍
+    id_front_url: Optional[str] = None
+    contact_phone: Optional[str] = None
+    full_name: Optional[str] = None
+    status: Optional[Union[int, str]] = None
+    kyc_status: Optional[bool] = None
+
+    @computed_field
+    @property
+    def status_label(self) -> str:
+        mapping = {
+            KYCStatus.PENDING: "pending",
+            KYCStatus.APPROVED: "approved",
+            KYCStatus.REJECTED: "rejected",
+            "pending": "pending",
+            "approved": "approved",
+            "rejected": "rejected",
+            "0": "pending",
+            "1": "approved",
+            "2": "rejected",
+        }
+
+        val = str(self.status).lower() if self.status is not None else ""
+        try:
+            # 尝试把字符串 "1" 转换成枚举
+            key = KYCStatus(int(val)) if val.isdigit() else val
+        except (ValueError, TypeError):
+            key = val
+
+        return mapping.get(key, "未知状态")
