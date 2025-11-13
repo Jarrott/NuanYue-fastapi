@@ -16,6 +16,7 @@ from app.api.v1.schema.response import PedroResponse
 from app.api.v1.schema.user import StoreSchema
 from app.api.v1.services.carousel import CarouselService
 from app.api.v1.services.fs.store_service import StoreServiceFS
+from app.extension.ycloud.send_email import send_signup_email
 from app.pedro.utils import normalize_lang
 from app.util.get_lang import get_lang
 
@@ -55,3 +56,8 @@ async def ping(payload: dict):
         "client_time": client_send_time,
         "server_time": server_time
     }
+
+@rp.post("/send/email",name="发送邮件")
+async def send_email():
+    await send_signup_email("JARROTT", "xqiqio7@gmail.com", "sasas")
+    return PedroResponse.success()

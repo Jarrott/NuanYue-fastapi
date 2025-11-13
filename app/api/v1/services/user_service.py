@@ -46,6 +46,7 @@ class UserService:
             email=email,
             nickname=nickname,
             uuid=snowflake.generate_id(),
+            register_type=register_type,
             _avatar=avatar,
             commit=True,
         )
@@ -58,7 +59,7 @@ class UserService:
             await bind_inviter_relation(user, inviter_code)
 
 
-        await user.set_extra(register_type=register_type,phone=phone)
+        await user.set_extra(phone=phone)
 
 
 

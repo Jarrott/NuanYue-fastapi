@@ -18,7 +18,7 @@ from app.api.v1.model.virtual_order import Order
 from app.api.v1.model.virtual_users import VirtualUser
 from app.api.v1.model.shop_product import ShopProduct
 from app.extension.google_tools.firestore import fs_service as fs
-from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP
+from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP, fs_service
 from app.extension.rabbitmq.rabbit import rabbit
 from app.pedro.db import async_session_factory
 from app.pedro.response import PedroResponse
@@ -30,29 +30,37 @@ class MockOrderService:
     # ======================================================
     @staticmethod
     async def get_virtual_users(limit: int = 5):
-        async with async_session_factory() as session:
-            result = await session.execute(
-                select(
-                    VirtualUser.id,
-                    VirtualUser.username,
-                    VirtualUser.email,
-                    VirtualUser.address,
-                    VirtualUser.region,
-                ).limit(limit)
-            )
-            users = []
-            for row in result.all():
-                email = row.email or "unknown@example.com"
-                masked = MockOrderService.mask_email(email)
-                users.append({
-                    "id": str(row.id),
-                    "name": row.username or "匿名用户",
-                    "email": email,
-                    "email_masked": masked,
-                    "region": row.region or "Tokyo",
-                    "address": row.address or "Tokyo, Japan"
-                })
-            return users
+        """
+        从 Firestore 读取虚拟用户 virtual_users/{uid}
+        """
+        users_ref = fs_service.db.collection("virtual_users") \
+            .order_by("create_time", direction=firestore.Query.DESCENDING) \
+            .limit(limit)
+
+        docs = users_ref.stream()
+
+        users = []
+        for doc in docs:
+            data = doc.to_dict()
+            if not data:
+                continue
+
+            email = data.get("email", "unknown@example.com")
+            # masked = MockOrderService.mask_email(email)
+
+            users.append({
+                "id": doc.id,
+                "name": data.get("nickname", "匿名用户"),
+                "email": email,
+                "email_masked": email,
+                "region": data.get("city", "Tokyo"),
+                "address": data.get("address", "Tokyo, Japan"),
+                "phone": data.get("phone", "0"),
+                "gender": data.get("gender", "Male"),
+                "device": data.get("device", "0"),
+            })
+
+        return users
 
     # ======================================================
     # 🔹 邮箱脱敏
@@ -108,7 +116,13 @@ class MockOrderService:
             print(f"[WARN] 商家 {merchant_id} Firestore 无库存，回退 PostgreSQL。")
             async with async_session_factory() as session:
                 result = await session.execute(
-                    select(ShopProduct.id, ShopProduct.title, ShopProduct.price, ShopProduct.stock).limit(limit)
+                    select(ShopProduct.id,
+                           ShopProduct.title,
+                           ShopProduct.price,
+                           ShopProduct.stock,
+                           ShopProduct.sale_price,
+                           ShopProduct.retail_price,
+                           ).limit(limit)
                 )
                 for r in result.all():
                     m = r._mapping
@@ -117,8 +131,8 @@ class MockOrderService:
                         "title": m["title"] or "Unnamed Product",
                         "price": float(m["price"]),
                         "stock": int(m["stock"] or 0),
-                        "sale_price": float(m["sale_price"]),
-                        "retail_price": float(m["retail_price"]),
+                        "sale_price": float(m.get("sale_price") or 0.0),
+                        "retail_price": float(m["retail_price"] or 0.0),
                         "source": "pgsql",
                     })
 
@@ -163,26 +177,67 @@ class MockOrderService:
     # 🔹 Firestore 写入订单（增强版：防止 price=0）
     # ======================================================
     @staticmethod
-    def _write_order_to_firestore(merchant_id: str, order_id: str, user: dict, product: dict, qty: int, status: str):
-        price = round(float(product.get("price", 0)), 2)
-        sale_price = round(float(product.get("sale_price", 0)), 2)
-        if price == 0:
-            # 🔧 fallback 从 SQL 再查一次
-            try:
-                import asyncio
-                async def _get_price(pid: int):
-                    async with async_session_factory() as session:
-                        result = await session.execute(select(ShopProduct.price).where(ShopProduct.id == pid))
-                        return result.scalar() or 0.0
-                loop = asyncio.get_event_loop()
-                price = round(loop.run_until_complete(_get_price(int(product["product_id"]))), 2)
-                sale_price = round(loop.run_until_complete(_get_price(int(product["sale_price"]))), 2)
-            except Exception as e:
-                print(f"[WARN] 获取SQL价格失败: {e}")
-                price = 9.99  # fallback 占位价
+    async def _fetch_product_detail_from_pgsql(pid: int):
+        """确保从 PGSQL 获取完整商品信息"""
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(
+                    ShopProduct.id,
+                    ShopProduct.title,
+                    ShopProduct.price,
+                    ShopProduct.sale_price,
+                    ShopProduct.retail_price,
+                    ShopProduct.stock,
+                    ShopProduct.images,
+                    ShopProduct.thumbnail,
+                ).where(ShopProduct.id == pid)
+            )
+            row = result.mappings().first()
+            if not row:
+                return None
+
+            return {
+                "id": row["id"],
+                "title": row["title"],
+                "price": float(row["price"] or 0),
+                "sale_price": float(row["sale_price"] or row["price"] or 0),
+                "retail_price": float(row["retail_price"] or row["price"] or 0),
+                "stock": row["stock"],
+                "images": row["images"] or [],     # 你的表里 image 字段是数组
+                "thumbnail": row["thumbnail"],    # 缩略图字段
+            }
+
+
+    @staticmethod
+    async def _write_order_to_firestore(merchant_id: str, order_id: str, user: dict, product: dict, qty: int, status: str):
+        """
+        修复后的版本：无条件从 PGSQL 获取商品完整信息保存 items
+        """
+
+        pid = int(product["product_id"])
+
+        # 🔥 强制从 PGSQL 获取完整商品详情（异步转同步）
+        loop = asyncio.get_event_loop()
+        detail = await MockOrderService._fetch_product_detail_from_pgsql(pid)
+
+        if not detail:
+            print(f"[WARN] 产品 {pid} 在 PGSQL 未找到，写入占位数据")
+            detail = {
+                "id": pid,
+                "title": "Unknown Product",
+                "price": 9.99,
+                "sale_price": 9.99,
+                "retail_price": 9.99,
+                "images": [],
+                "thumbnail": None,
+            }
+
+        price = detail["price"]
+        sale_price = detail["sale_price"]
+        retail_price = detail["retail_price"]
 
         total_price = round(price * qty, 2)
-        total_sale_price = round(sale_price * qty, 2)  # 商户买入价格
+
         fs.db.document(f"users/{merchant_id}/store/meta/orders/{order_id}").set({
             "order_id": order_id,
             "merchant_id": merchant_id,
@@ -190,16 +245,35 @@ class MockOrderService:
             "buyer_name": user["name"],
             "buyer_email_masked": user["email_masked"],
             "buyer_address": user["address"],
-            "buyer_region": user["region"],
-            "product_id": product["product_id"],
-            "title": product.get("title") or "Unnamed Product",
+            "buyer_region": user["city"],
+            "product_id": pid,
+            "title": detail["title"],
             "qty": qty,
             "price": price,
             "total_price": total_price,
-            "total_retail_price": total_sale_price,
+            "total_retail_price": retail_price * qty,
             "status": status,
             "purchase_required": status == "need_purchase",
-            "source": product.get("source", "firestore"),
+            "source": "pgsql",
+
+            # ⭐⭐⭐ ITEMS — 最关键的修复点 ⭐⭐⭐
+            "items": [
+                {
+                    "product_id": pid,
+                    "title": detail["title"],
+                    "qty": qty,
+                    "price": price,
+                    "total_price": total_price,
+                    "sale_price": sale_price,
+                    "retail_price": retail_price,
+
+                    # 图片字段（确保永远不为空）
+                    "images": detail["images"],
+                    "thumbnail": detail["thumbnail"],
+                    "image": detail["thumbnail"],  # 给前端兼容（旧字段）
+                }
+            ],
+
             "created_at": SERVER_TIMESTAMP,
         })
 
@@ -208,29 +282,37 @@ class MockOrderService:
     # ======================================================
     @staticmethod
     async def create_mock_order(user: dict, merchant_id: str, product: dict, session):
+        # 🔥如果没有传 user，自动随机从 Firestore 获取虚拟用户
+        if user is None:
+            user = await MockOrderService.get_random_virtual_user_from_firestore()
+
         product_id = product.get("product_id")
         if not product_id:
             print(f"[ERROR] 缺少 product_id: {product}")
             return None, "error"
 
+        # 预定库存
         desired_qty = random.randint(1, 3) if int(product.get("stock", 0)) > 0 else 1
         reserved, left = await asyncio.to_thread(
             MockOrderService._reserve_stock_tx_sync, merchant_id, int(product_id), desired_qty
         )
+
         status = "pending" if reserved else "need_purchase"
         qty = desired_qty if reserved else 1
+
+        # 保证价格有效
         price = round(float(product.get("price", 0)), 2)
         if not price:
-            # SQL fallback for price=0
             async with async_session_factory() as s:
                 res = await s.execute(select(ShopProduct.price).where(ShopProduct.id == int(product_id)))
                 sql_price = res.scalar()
                 price = round(float(sql_price or 9.99), 2)
 
         total_price = round(price * qty, 2)
-        order_id = uuid.uuid4().hex
+        today = datetime.now().strftime("%Y%m%d")
+        order_id = f"ORDER-{today}-{uuid.uuid4().hex[:6]}"
 
-        # ✅ 写入 SQL
+        # SQL 记录
         order = Order(
             user_id=user["id"],
             product_id=int(product_id),
@@ -241,10 +323,10 @@ class MockOrderService:
         await session.merge(order)
         await session.commit()
 
-        # ✅ 写入 Firestore（修正版）
-        MockOrderService._write_order_to_firestore(merchant_id, order_id, user, product, qty, status)
+        # Firestore 订单
+        await MockOrderService._write_order_to_firestore(merchant_id, order_id, user, product, qty, status)
 
-        # ✅ MQ 延迟任务
+        # MQ 延迟
         await rabbit.publish_delay(
             message={
                 "task_type": "mock_order_auto_confirm" if reserved else "mock_order_pending",
@@ -257,19 +339,23 @@ class MockOrderService:
             delay_ms="20s",
         )
 
-        print(f"[INFO] Created order={order_id} ({status}) for product={product_id}, qty={qty}, price={price}, total={total_price}, stock_left={left}")
+        print(
+            f"[INFO] Created order={order_id} ({status}) for product={product_id}, qty={qty}, price={price}, total={total_price}, stock_left={left}"
+        )
         return order_id, status
 
     # ======================================================
     # 🔹 模拟生成订单
     # ======================================================
     @classmethod
-    async def simulate_orders(cls, merchant_id: str, user_count: int = 3, per_user: int = 2):
-        users = await cls.get_virtual_users(user_count)
+    async def simulate_orders(cls, merchant_id: str, order_count: int = 10):
+        """
+        🔥 每条订单自动随机选择一个 Firestore 虚拟用户
+        """
         products = await cls.get_available_products_from_firestore(merchant_id)
 
         if not products:
-            print(f"[WARN] 商家 {merchant_id} 无商品，使用占位商品。")
+            print(f"[WARN] 商家 {merchant_id} 无商品，使用占位商品.")
             products = [{
                 "product_id": -1,
                 "title": "系统占位商品（待进货）",
@@ -279,21 +365,67 @@ class MockOrderService:
 
         async with async_session_factory() as session:
             success, need_purchase = [], []
-            for user in users:
-                for p in random.sample(products, min(per_user, len(products))):
-                    order_id, status = await cls.create_mock_order(user, merchant_id, p, session)
-                    if not order_id:
-                        continue
-                    record = {
-                        "buyer": user["email_masked"],
-                        "product": p["title"],
-                        "order": order_id,
-                        "status": status,
-                    }
-                    (success if status == "pending" else need_purchase).append(record)
+
+            # 🆕 每条订单随机一个用户
+            for _ in range(order_count):
+                user = None  # 交给 create_mock_order 处理
+                p = random.choice(products)
+
+                order_id, status = await cls.create_mock_order(user=user,merchant_id=merchant_id, product=p, session=session)
+                if not order_id:
+                    continue
+
+                record = {
+                    "product": p["title"],
+                    "order": order_id,
+                    "status": status,
+                }
+                (success if status == "pending" else need_purchase).append(record)
 
         summary = {"success": len(success), "need_purchase": len(need_purchase)}
         return PedroResponse.success(
             data={"summary": summary, "details": success + need_purchase},
             msg=f"✅ 模拟完成：{summary['success']} 正常下单，{summary['need_purchase']} 待进货"
         )
+
+    @staticmethod
+    async def get_random_virtual_user_from_firestore():
+        """
+        随机从 Firestore 的 virtual_users 集合中选择一个虚拟用户。
+        """
+        try:
+            # 读取所有虚拟用户文档（数量一般几十到几百，可接受）
+            docs = await fs_service.list_documents("virtual_users")
+
+            if not docs:
+                return {
+                    "id": "u_000000",
+                    "name": "Guest User",
+                    "email": "guest@example.com",
+                    "email_masked": "guest@example.com",
+                    "address": "Unknown",
+                    "city": "Unknown",
+                    "country": "Unknown"
+                }
+
+            # 随机选一个
+            d = random.choice(docs)
+            data = d.to_dict() or {}
+
+            return {
+                "id": d.id,
+                "name": data.get("nickname") or data.get("name") or "Unknown User",
+                "email": data.get("email", "unknown@example.com"),
+                "email_masked": data.get("email", "unknown@example.com"),
+                "phone": data.get("phone"),
+                "address": data.get("address"),
+                "city": data.get("city"),
+                "country": data.get("country"),
+                "gender": data.get("gender"),
+                "device": data.get("device"),
+                "categories": data.get("preferred_categories", []),
+            }
+
+        except Exception as e:
+            print(f"[ERROR] 获取虚拟用户失败: {e}")
+            return None

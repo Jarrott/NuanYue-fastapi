@@ -16,6 +16,7 @@ from app.api.v1.schema.merchant import (MerchantProfile,
                                         PurchaseSchema, PageQuery)
 
 from app.api.v1.schema.response import StoreDetailResponse
+from app.api.v1.services.store.store_review import StoreReviewService
 from app.api.v1.services.store_order_service import RestockService
 from app.api.v1.services.store_service import MerchantService
 from app.extension.google_tools.firestore import fs_service
@@ -34,7 +35,7 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
     初始化创建商户 (Firestore)
     """
     r = await rds.instance()
-    status_key = f"user:{user.id}:store:status"
+    status_key = f"user:{user.uuid}:store:status"
 
     # ===================================================
     # ① 优先读取 Redis（减少 Firestore 成本）
@@ -58,7 +59,7 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
     # ② Redis 未命中 / 异常时，读取 Firestore 实时状态
     # ===================================================
     try:
-        existing_store = await fs_service.get(f"users/{user.id}/store/profile")
+        existing_store = await fs_service.get(f"users/{user.uuid}/store/profile")
         fs_status = (existing_store or {}).get("status")
 
         if fs_status in ("pending", "approved"):
@@ -85,7 +86,7 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
     # ④ 创建商户记录
     # ===================================================
     await MerchantService.create_merchant(
-        uid=user.id,
+        uid=user.uuid,
         name=data.name or None,
         email=data.email or db_user.email,
         address=data.address or None,
@@ -102,13 +103,13 @@ async def create_merchant(data: CreateStoreSchema, user=Depends(login_required))
 
 @rp.get("/profile", response_model=PedroResponse[list[StoreDetailResponse]])
 async def profile(user=Depends(login_required)):
-    data = await MerchantService.get_my_store(str(user.id))
+    data = await MerchantService.get_my_store(str(user.uuid))
     return PedroResponse.success(data=data,schema=CreateStoreSchema)
 
 
 @rp.get("/wallet", response_model=WalletVO)
 async def wallet(user=Depends(login_required)):
-    data = await MerchantService.get_or_create_wallet(str(user.id))
+    data = await MerchantService.get_or_create_wallet(str(user.uuid))
     return PedroResponse.success(data=data,schema=WalletVO)
 
 
@@ -157,7 +158,7 @@ async def list_purchases(
     🔹 兼容 Firestore 结构（每批次内含 items）
     🔹 自动补齐商品详情
     """
-    result = await MerchantService.list_purchase_batches(user.id, size)
+    result = await MerchantService.list_purchase_batches(user.uuid, size)
 
     # ✅ 防止返回 PedroResponse / JSONResponse 导致 TypeError
     if isinstance(result, dict):
@@ -197,7 +198,7 @@ async def list_need_purchase_orders(
         size: int = Query(default=50, ge=1, le=100),
         user=Depends(login_required)
 ):
-    result = await MerchantService.list_need_purchase_orders(user.id, size)
+    result = await MerchantService.list_need_purchase_orders(user.uuid, size)
     return R.page(result, page=page, size=size)
 
 
@@ -210,7 +211,7 @@ async def restock_single(
     🔹 单独补货接口（扣款 + Firestore + RTDB 同步）
     🔹 用于单条缺货订单的补货操作
     """
-    return await RestockService.restock_single(uid=user.id, order_id=order_id)
+    return await RestockService.restock_single(uid=str(user.uuid), order_id=order_id)
 
 
 # =========================================================
@@ -227,8 +228,26 @@ async def auto_restock(user=Depends(login_required)):
     - 订单状态变更为 pending
     """
     try:
-        result = await RestockService.restock_all(user.id)
+        result = await RestockService.restock_all(str(user.uuid))
         return result
     except Exception as e:
         print(f"[❌ Auto Restock Error] {e}")
         return PedroResponse.fail(msg=f"补货失败：{e}")
+
+@rp.get("/reviews")
+async def list_my_reviews(
+    min_rating: float | None = Query(None),
+    keyword: str | None = Query(None),
+    has_image: bool | None = Query(None),
+    size: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None),
+    user=Depends(login_required),
+):
+    return await StoreReviewService.list_merchant_reviews(
+        merchant_id=str(user.uuid or user.id),
+        size=size,
+        keyword=keyword,
+        min_rating=min_rating,
+        has_image=has_image,
+        cursor=cursor,
+    )

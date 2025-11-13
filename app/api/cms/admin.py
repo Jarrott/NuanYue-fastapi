@@ -225,7 +225,7 @@ async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     if not check:
         return PedroResponse.fail(msg="审核失败")
     # ✅ 更新 PGSQL 用户扩展字段
-    user = await User.get(id=uid)
+    user = await User.get(uuid=uid)
     new_status = KYCStatus.APPROVED.value if data.approve else KYCStatus.REJECTED.value
     await user.set_extra(kyc_status=new_status)
 
@@ -238,7 +238,7 @@ async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
 async def mock_orders(data: MockCreateOrderSchema):
     return await MockOrderService.simulate_orders(
         merchant_id=str(data.merchant_id),
-        user_count=data.user_count,
-        per_user=data.per_user,
+        order_count=data.user_count,
+        # per_user=data.per_user,
     )
 

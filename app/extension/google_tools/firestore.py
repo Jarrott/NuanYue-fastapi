@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-# @Time    : 2025/11/6 1:37
+# @Time    : 2025/11/13 23:59
 # @Author  : Pedro
 # @File    : firestore.py
 # @Software: PyCharm
@@ -9,6 +10,9 @@ from datetime import datetime
 from typing import Any, Dict
 from firebase_admin import firestore
 from app.extension.google_tools.firebase_admin_service import fs
+
+# ✅ 引入统一 ID 解析工具
+from app.pedro.id_helper import IDHelper
 
 
 class FirestoreService:
@@ -21,6 +25,30 @@ class FirestoreService:
             self._db = firestore.client()
         return self._db
 
+    # =====================================================
+    # 🧩 路径解析（自动识别 user / id / uuid）
+    # =====================================================
+    def _resolve_path(self, base: Any, subpath: str | None = None) -> str:
+        """
+        ✅ 自动识别各种 uid 形式并返回 Firestore 路径
+        支持：
+            - fs_service.get("users/15/store/profile")
+            - fs_service.get(user, "store/profile")
+            - fs_service.get(user.uuid, "store/profile")
+            - fs_service.get(12345, "store/profile")
+        """
+        # 传入完整路径 → 直接返回
+        if isinstance(base, str) and "/" in base and not subpath:
+            return base
+
+        # user 对象 / uuid / id
+        uid = IDHelper.safe_uid(base)
+        subpath = subpath.strip("/") if subpath else ""
+        return f"users/{uid}/{subpath}" if subpath else f"users/{uid}"
+
+    # =====================================================
+    # 🔧 路径 → DocumentReference
+    # =====================================================
     def _doc(self, path: str):
         """支持 users/123/kyc/review 这种 path 自动解析"""
         parts = path.split("/")
@@ -29,19 +57,22 @@ class FirestoreService:
             doc = doc.collection(parts[i]).document(parts[i + 1])
         return doc
 
+    # =====================================================
+    # 🕓 自动时间戳管理
+    # =====================================================
     @staticmethod
     def _add_timestamps(data: Dict[str, Any], create: bool = False):
         now = firestore.firestore.SERVER_TIMESTAMP
         if create:
-            data.setdefault("create_time", now)
-        data["update_time"] = now
+            data.setdefault("updated_at", now)
+        data["updated_at"] = now
         return data
 
     # =====================================================
-    # ✅ 异步包装所有 Firestore 同步调用
+    # ✅ 写入 (支持 user / id / path)
     # =====================================================
-    async def set(self, path: str, data: Dict[str, Any], merge: bool = False):
-        """写入(覆盖/合并)，自动设置创建 & 更新时间"""
+    async def set(self, base: Any, data: Dict[str, Any], subpath: str | None = None, merge: bool = False):
+        path = self._resolve_path(base, subpath)
         doc = self._doc(path)
         data = self._add_timestamps(data, create=not merge)
 
@@ -50,8 +81,11 @@ class FirestoreService:
 
         return await asyncio.to_thread(_do_set)
 
-    async def update(self, path: str, data: Dict[str, Any], merge: bool = True):
-        """更新(默认 merge=True)，只写入部分字段"""
+    # =====================================================
+    # ✅ 更新 (merge=True)
+    # =====================================================
+    async def update(self, base: Any, data: Dict[str, Any], subpath: str | None = None, merge: bool = True):
+        path = self._resolve_path(base, subpath)
         doc = self._doc(path)
         data = self._add_timestamps(data)
 
@@ -60,13 +94,15 @@ class FirestoreService:
 
         return await asyncio.to_thread(_do_update)
 
-    async def get(self, path: str):
+    # =====================================================
+    # ✅ 获取 (支持 user / id / uuid)
+    # =====================================================
+    async def get(self, base: Any, subpath: str | None = None):
+        path = self._resolve_path(base, subpath)
         doc = self._doc(path)
 
         def _normalize_firestore_data(data):
             """递归转换 Firestore 中的 DatetimeWithNanoseconds"""
-            from datetime import datetime
-
             if isinstance(data, dict):
                 return {k: _normalize_firestore_data(v) for k, v in data.items()}
             elif isinstance(data, list):
@@ -80,12 +116,15 @@ class FirestoreService:
             snap = doc.get()
             if not snap.exists:
                 return None
-            data = snap.to_dict()
-            return _normalize_firestore_data(data)
+            return _normalize_firestore_data(snap.to_dict())
 
         return await asyncio.to_thread(_do_get)
 
-    async def delete(self, path: str):
+    # =====================================================
+    # ✅ 删除文档
+    # =====================================================
+    async def delete(self, base: Any, subpath: str | None = None):
+        path = self._resolve_path(base, subpath)
         doc = self._doc(path)
 
         def _do_delete():
@@ -93,37 +132,71 @@ class FirestoreService:
 
         return await asyncio.to_thread(_do_delete)
 
-    # ✅ 新增通用安全 update 方法
-    async def safe_update(self, path: str, data: dict):
-        """
-        🔄 安全更新 Firestore 文档（自动获取 DocumentReference）
-        - 如果文档不存在则创建
-        - 不会抛出 'Client has no attribute update' 错误
-        """
+    # =====================================================
+    # ✅ 安全更新 (若不存在自动 set)
+    # =====================================================
+    async def safe_update(self, base: Any, data: dict, subpath: str | None = None):
+        path = self._resolve_path(base, subpath)
+        ref = self.db.document(path)
         try:
-            ref = self.db.document(path)
             ref.update(data)
         except Exception as e:
-            # 若文档不存在，fallback 到 set()
             if "No document to update" in str(e):
                 ref.set(data)
             else:
                 raise e
 
-    # ✅ 新增通用 set 方法（防止旧版本未定义）
-    async def safe_set(self, path: str, data: dict):
+    # =====================================================
+    # ✅ 安全 set
+    # =====================================================
+    async def safe_set(
+            self,
+            path: str = None,
+            base: str = None,
+            data: dict = None,
+            subpath: str | None = None,
+            merge: bool = True,
+    ):
         """
-        ⚡ 安全创建或覆盖 Firestore 文档
+        ⚡ 安全写入 Firestore
+        - 支持直接传 path
+        - 支持 base + subpath 拼接
+        - 自动附加 SERVER_TIMESTAMP
+        - 自动 merge
         """
-        ref = self.db.document(path)
-        ref.set(data)
+        # 🧩 支持直接 path 模式
+        if path:
+            resolved_path = path
+        else:
+            # 🧩 兼容旧写法：base + subpath 模式
+            if not base:
+                raise ValueError("safe_set() requires either 'path' or 'base'")
+            resolved_path = self._resolve_path(base, subpath)
 
+        # ✅ 路径检查（偶数层）
+        parts = [p for p in resolved_path.split("/") if p]
+        if len(parts) % 2 != 0:
+            raise ValueError(
+                f"Invalid Firestore path '{resolved_path}': must have even segments (collection/doc/...)"
+            )
+
+        # ✅ 自动时间戳
+        from firebase_admin import firestore
+        now = firestore.firestore.SERVER_TIMESTAMP
+        data = data or {}
+        data.setdefault("create_time", now)
+        data["update_time"] = now
+
+        # ✅ 写入
+        ref = self.db.document(resolved_path)
+        ref.set(data, merge=merge)
+
+        print(f"✅ [FirestoreService.safe_set] path={resolved_path}")
+
+    # =====================================================
+    # ✅ 批量读取
+    # =====================================================
     async def get_multi(self, paths: list[str]):
-        """
-        ✅ 批量获取多个文档（异步并发）
-        :param paths: ['users/123/favorites/1', 'users/123/favorites/2', ...]
-        :return: {doc_id: exists_bool}
-        """
         async def fetch(path):
             ref = self.db.document(path)
             snap = await asyncio.get_event_loop().run_in_executor(None, ref.get)
@@ -132,18 +205,15 @@ class FirestoreService:
         results = await asyncio.gather(*(fetch(p) for p in paths))
         return {pid: exists for pid, exists in results}
 
+    # =====================================================
+    # ✅ 列出集合文档
+    # =====================================================
     async def list_documents(self, collection_path: str):
-        """
-        返回某个集合下的所有文档快照列表
-        """
-        import asyncio
         loop = asyncio.get_event_loop()
         collection_ref = self.db.collection(collection_path)
-
-        # Firestore 的 stream() 是阻塞操作 → 在线程池执行
         docs = await loop.run_in_executor(None, lambda: list(collection_ref.stream()))
         return [doc for doc in docs if doc.exists]
 
 
-# ✅ 实例化单例
+# ✅ 单例实例
 fs_service = FirestoreService()

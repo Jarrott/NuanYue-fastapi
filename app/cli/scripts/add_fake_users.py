@@ -1,89 +1,103 @@
-# @Time    : 2025/11/8 16:45
+# -*- coding: utf-8 -*-
+"""
+# @Time    : 2025/11/15 21:40
 # @Author  : Pedro
-# @File    : add_fake_users.py
+# @File    : generate_virtual_users.py
 # @Software: PyCharm
+"""
 
-import asyncio
+import random
 import uuid
-from typing import List, Dict
+import time
+import asyncio
 
-from faker import Faker
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-from app.pedro.db import async_session_factory
-from app.api.v1.model.virtual_users import VirtualUser  # 按你的路径调整
-
-# fake = Faker("ja_JP")
-fake = Faker("en_US")
+from app.extension.google_tools.firestore import fs_service
 
 
-async def create_virtual_users(n: int = 2000, batch_size: int = 500):
-    """
-    批量生成虚拟用户：本地去重 + PG on_conflict_do_nothing 兜底
-    直到真正插入数量达到 n
-    """
-    inserted_total = 0
+# ——————————————————————————
+# 字典：随机模拟数据
+# ——————————————————————————
+first_names = [
+    "Yuki","Mika","Sakura","Aoi","Rina",
+    "Akira","Ren","Kaito","Haruto","Hinata",
+    "Sora","Kaede","Yuma","Nao","Rui"
+]
 
-    # 为了减少 Faker 碰撞风险，额外本地去重
-    seen_usernames = set()
-    seen_emails = set()
+cities = [
+    ("Tokyo", "Shinjuku-ku"), ("Tokyo", "Toshima-ku"),
+    ("Osaka", "Kita-ku"), ("Nagoya", "Naka-ku"),
+    ("Fukuoka", "Hakata-ku"), ("Sapporo", "Chuo-ku")
+]
 
-    async with async_session_factory() as session:
-        while inserted_total < n:
-            need = n - inserted_total
-            # 适度放大生成量，提高每轮有效插入率（避免 DO NOTHING 过多）
-            gen_size = min(batch_size, max(100, need))
+devices = [
+    "iPhone 14", "iPhone 15 Pro", "Google Pixel 7",
+    "Samsung S23", "Sony Xperia 5"
+]
 
-            rows: List[Dict] = []
-            for _ in range(gen_size * 2):  # 放大2倍，过滤后更容易插满一批
-                # 1) 用 faker.unique 降低碰撞
-                username = fake.unique.user_name()
-                email = fake.unique.email()
+categories = [
+    "beauty", "fashion", "electronics",
+    "gaming", "household", "skincare"
+]
 
-                # 2) 再用本地 set 双重去重
-                if username in seen_usernames or email in seen_emails:
-                    continue
+freqs = ["daily", "2-3 days", "weekly", "monthly", "lazy"]
 
-                seen_usernames.add(username)
-                seen_emails.add(email)
-
-                rows.append({
-                    "id": uuid.uuid4(),
-                    "locale": fake.locale(),
-                    "username": username,
-                    "postcode": fake.postcode(),
-                    "email": email,
-                    "region": fake.city(),
-                    "address": fake.address(),
-                    "is_bot": True,
-                    # 你的表里如果还有 create_time / update_time / device_info 等字段，
-                    # 可以在此补充默认值
-                })
-
-                if len(rows) >= gen_size:
-                    break
-
-            if not rows:
-                # 极端情况下 faker.unique 池子耗尽，清空重置
-                fake.unique.clear()
-                continue
-
-            # ✅ 关键：PG upsert（不指定冲突目标 => 任意唯一约束冲突都 DO NOTHING）
-            stmt = pg_insert(VirtualUser.__table__).values(rows).on_conflict_do_nothing()
-
-            result = await session.execute(stmt)
-            await session.commit()
-
-            # rowcount 即本轮真正插入成功的行数（被 DO NOTHING 的不会计数）
-            inserted = result.rowcount or 0
-            inserted_total += inserted
-
-            print(f"本轮生成 {len(rows)}，成功插入 {inserted}，累计 {inserted_total}/{n}")
-
-    # 释放 faker 唯一池
-    fake.unique.clear()
-    print(f"✅ 完成：共插入 {inserted_total} 条虚拟用户")
+tags_list = ["活跃用户", "高复购", "新用户", "沉默用户", "优惠敏感"]
 
 
+# ——————————————————————————
+# 工具函数：生成邮箱+电话（带掩码）
+# ——————————————————————————
+def mask_email(name: str):
+    return f"{name.lower()}***@gmail.com"
+
+def mask_phone():
+    return f"080-***{random.randint(1,9)}-{random.randint(1000,9999)}"
+
+
+# ——————————————————————————
+# 单个用户生成逻辑
+# ——————————————————————————
+def generate_single_user():
+    name = random.choice(first_names)
+    city, area = random.choice(cities)
+
+    return {
+        "uid": "u_" + uuid.uuid4().hex[:8],
+        "nickname": name + "***",
+        "gender": random.choice(["male", "female"]),
+        "age": random.randint(18, 45),
+        "email": mask_email(name),
+        "phone": mask_phone(),
+        "country": "JP",
+        "city": city,
+        "address": f"{area} {random.randint(1,5)}-{random.randint(1,20)}-{random.randint(1,20)}",
+        "device": random.choice(devices),
+        "order_frequency": random.choice(freqs),
+        "preferred_categories": random.sample(categories, k=random.randint(1, 3)),
+        "tags": random.sample(tags_list, k=2),
+        "create_time": int(time.time() * 1000)
+    }
+
+
+# ——————————————————————————
+# 批量生成并写入 Firestore
+# ——————————————————————————
+async def generate_virtual_users(num: int = 500):
+    tasks = []
+
+    for _ in range(num):
+        user = generate_single_user()
+        path = f"virtual_users/{user['uid']}"
+        # 异步写入 Firestore
+        tasks.append(fs_service.set(path, user))
+
+    await asyncio.gather(*tasks)
+
+    print(f"🎉 已成功生成并写入 {num} 个虚拟用户")
+
+
+# ——————————————————————————
+# 主入口
+# ——————————————————————————
 if __name__ == "__main__":
-    asyncio.run(create_virtual_users(n=10000, batch_size=1000))
+    asyncio.run(generate_virtual_users(500))

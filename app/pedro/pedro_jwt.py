@@ -139,6 +139,7 @@ class JWTService:
         # ✅ 生成 Access / Refresh Token
         access_payload = {
             "uid": user.id,
+            "uuid": str(user.uuid),
             "ver": int(version),
             "scope": scopes,
             "iat": now,
@@ -148,6 +149,7 @@ class JWTService:
         }
         refresh_payload = {
             "uid": user.id,
+            "uuid": str(user.uuid),
             "ver": int(version),
             "scope": scopes,
             "iat": now,

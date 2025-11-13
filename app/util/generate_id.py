@@ -80,3 +80,4 @@ class SnowflakeGenerator:
 
 # ✅ 初始化全局生成器
 snowflake = SnowflakeGenerator(worker_id=1, datacenter_id=1)
+new_id = snowflake.generate_id()

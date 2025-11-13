@@ -19,3 +19,4 @@ class InformationUpdateSchema(BaseModel):
     gender: Optional[int] = None
     birthday: Optional[str] = None
     points: Optional[int] = None
+    kyc_status: Optional[bool] = None

@@ -40,7 +40,7 @@ async def create_order(data: CreateShopSchema, user=Depends(login_required)):
         body = json.loads(result.body.decode())
         balance_after = body["data"]["balance_after"]
         # ✅ Firestore 同步钱包余额
-        await BaseWalletSyncService.sync_all(user.id,balance_after)
+        await BaseWalletSyncService.sync_all(user.uuid,balance_after)
 
     print(f"🆔 创建订单成功 ID={order.id}")
     r = await rds.instance()

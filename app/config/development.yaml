@@ -165,3 +165,6 @@ qiniu:
 aes:
   secret: ${AES_KEY}
   iv: ${AES_IV}
+
+ycloud:
+  apikey: ${YCLOUD_API_KEY}

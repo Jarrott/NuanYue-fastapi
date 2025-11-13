@@ -455,6 +455,7 @@ class AbstractUser(InfoCrud):
     _avatar = Column(String(500), comment="头像URL")
     email = Column(String(100), unique=True, index=True, comment="邮箱")
     uuid = Column(BigInteger, unique=True, index=True, comment="UUID")
+    register_type = Column(String(30), comment="注册类型")
 
     from sqlalchemy.dialects.postgresql import JSONB
     extra = Column(

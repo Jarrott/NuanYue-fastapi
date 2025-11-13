@@ -10,6 +10,9 @@
 
 import time
 import asyncio
+
+from sqlalchemy import select
+
 from app.extension.google_tools.firestore import fs_service as fs
 from app.extension.google_tools.firebase_admin_service import rtdb
 from app.extension.google_tools.fs_transaction import SERVER_TIMESTAMP
@@ -46,7 +49,7 @@ class BaseWalletSyncService:
         """
         🔄 统一多源同步（并发 + 自动重试）
         """
-        uid = str(uid)
+        uid = int(uid)
         start = time.time()
 
         async def sync_firestore():
@@ -61,7 +64,8 @@ class BaseWalletSyncService:
 
         async def sync_pgsql():
             async with async_session_factory() as session:
-                user = await session.get(User, int(uid))
+                result = await session.execute(select(User).where(User.uuid == int(uid)))
+                user = result.scalar_one_or_none()  # ✅ 提取实际 ORM 对象
                 if user:
                     extra = dict(user.extra or {})
                     extra["balance"] = float(balance_after)

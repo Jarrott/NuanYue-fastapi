@@ -75,7 +75,7 @@ async def update_user_info(
         data["_avatar"] = data.pop("avatar")
 
     # ✅ extra 字段专门处理
-    extra_fields = ("phone", "gender", "birthday", "points", "vip_status")
+    extra_fields = ("phone", "gender", "birthday", "points", "vip_status","kyc_status")
     extra_data = {k: data.pop(k) for k in list(data.keys()) if k in extra_fields}
 
     # ✅ 先更新普通字段

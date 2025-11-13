@@ -7,6 +7,8 @@ Pedro-Core FastAPI 用户模块 (Async Version)
 ✅ JWT 登录认证
 ✅ 支持会员开通、签到、邀请关系树
 """
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Body
 from fastapi.responses import FileResponse
 
@@ -17,6 +19,7 @@ from sqlalchemy.util import await_only
 
 from app.api.v1.model.shop_product import ShopProduct
 from app.api.v1.services.fs.favorite_service import FavoriteServiceFS
+from app.api.v1.services.store.store_review import StoreReviewService
 from app.extension.google_tools.firestore import fs_service
 from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
 from app.pedro.enums import KYCStatus
@@ -80,7 +83,7 @@ async def register_user(payload: UserRegisterSchema):
         inviter_code=payload.inviter_code,
         nickname=payload.nickname,
         country=payload.country,
-        register_type=payload.identity_type,
+        register_type=payload.register_type,
         group_ids=payload.group_ids,
     )
     return SuccessResponse.success(msg="注册成功!")
@@ -94,6 +97,7 @@ async def login(data: LoginSchema, request: Request):
     """
     用户登录并获取 Token
     """
+    print(data.username)
     user = await UserService.get_by_username(data.username)
 
     if data.password_encrypted:
@@ -178,7 +182,7 @@ async def update_user_info(
 
     # ✅ 特殊 avatar
     if "avatar" in data:
-        data["_avatar"] = data.pop("avatar")
+        data["_avatar"] = payload.avatar
 
     # ✅ extra 字段专门处理
     extra_fields = ("phone", "gender", "birthday")
@@ -283,15 +287,15 @@ async def kyc_detail(user=Depends(login_required)):
 
 @rp.post("/kyc", name="用户提交认证")
 async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
-    uid = user.id
+    uid = str(user.uuid)
     snap = await fs_service.get(f"users/{uid}/kyc/info")
     if snap:
         return PedroResponse.fail(msg="申请已经提交。请勿重复提交审核")
 
     # ✅ 写入 Firestore
-    await fs_service.set(
+    await fs_service.safe_set(
         path=f"users/{uid}/kyc/info",
-        data=data.model_dump()
+        data=data.model_dump(),
     )
 
     # ✅ 更新 PGSQL Extra（标记 KYC 提交）
@@ -313,3 +317,16 @@ async def toggle_favorite(data: ToggleSchema, user=Depends(login_required)):
 @rp.get("/toggle/list", name="喜欢的商品列表")
 async def get_favorites(user=Depends(login_required)):
     return await FavoriteServiceFS.list(user.id, limit=20)
+
+
+@rp.post("/add/review",name="用户发布评论")
+async def add_review():
+    await StoreReviewService.add_review(
+        merchant_uid="264365076079841280",
+        user_id="1001",
+        rating=4.8,
+        comment="发货速度很快，客服态度很好！",
+        images=["https://cdn.qi-yue.vip/review1.jpg"],
+        order_id=uuid.uuid4().hex,
+    )
+    return PedroResponse.success()
