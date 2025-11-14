@@ -10,9 +10,10 @@ from app.extension.websocket.utils.ws_utils import ws_auth
 from app.pedro.pedro_jwt import jwt_service
 
 # 默认策略
-HEARTBEAT_INTERVAL = 20          # 客户端心跳频率（建议 15~30s）
-IDLE_TIMEOUT = 60                # 超时踢下线（无心跳/无任何收发）
-TOKEN_REFRESH_THRESHOLD = 5 * 60 # token 距离过期 < 5m，提示续期
+HEARTBEAT_INTERVAL = 30  # 客户端心跳频率（建议 15~30s）
+IDLE_TIMEOUT = 60  # 超时踢下线（无心跳/无任何收发）
+TOKEN_REFRESH_THRESHOLD = 5 * 60  # token 距离过期 < 5m，提示续期
+
 
 async def _set_online(uid: int, ws_id: str):
     r = await rds.instance()
@@ -23,26 +24,30 @@ async def _set_online(uid: int, ws_id: str):
         "last_seen": int(time.time())
     })
 
+
 async def _set_offline(uid: int):
     r = await rds.instance()
     await r.srem("ws:online:uids", uid)
     await r.delete(f"ws:online:detail:{uid}")
 
+
 async def _online_count() -> int:
     r = await rds.instance()
     return await r.scard("ws:online:uids")
 
+
 def _now() -> int:
     return int(time.time())
 
+
 async def ws_entry(
-    ws: WebSocket,
-    handler: Callable[[WebSocket, int], Awaitable[None]],
-    *,
-    auto_subscribe_all: bool = False,
-    heartbeat_interval: int = HEARTBEAT_INTERVAL,
-    idle_timeout: int = IDLE_TIMEOUT,
-    enable_token_refresh: bool = True,
+        ws: WebSocket,
+        handler: Callable[[WebSocket, int], Awaitable[None]],
+        *,
+        auto_subscribe_all: bool = False,
+        heartbeat_interval: int = HEARTBEAT_INTERVAL,
+        idle_timeout: int = IDLE_TIMEOUT,
+        enable_token_refresh: bool = True,
 ):
     await ws.accept()
 
@@ -126,7 +131,7 @@ async def ws_entry(
 
             # --- Token 续期提醒（可与 handler 并存） ---
             if enable_token_refresh:
-                exp = payload.get("exp")          # JWT exp (epoch seconds)
+                exp = payload.get("exp")  # JWT exp (epoch seconds)
                 if exp and (exp - _now()) < TOKEN_REFRESH_THRESHOLD and not refresh_notified:
                     refresh_notified = True
                     await ws.send_json({"type": "token", "event": "refresh_required", "remain_sec": exp - _now()})

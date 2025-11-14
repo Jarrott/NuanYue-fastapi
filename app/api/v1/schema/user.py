@@ -436,6 +436,7 @@ class StoreSchema(BaseModel):
     level: Optional[str] = None
     logo: Optional[str] = None
     store_name: Optional[str] = None
+    stats: Optional[dict] = None
 
 
 class SearchShopSchema(BaseModel):
@@ -483,3 +484,30 @@ class KycDetailSchema(BaseModel):
             key = val
 
         return mapping.get(key, "未知状态")
+
+
+class UserAddressCreateSchema(BaseModel):
+    first_name: str = Field(..., description="名字")
+    last_name: str = Field(..., description="姓氏")
+    street: str = Field(..., description="街道地址")
+    building: str | None = Field(None, description="公寓 / 单元 可选")
+    postal_code: str = Field(..., description="邮政编码")
+    phone: str = Field(..., description="电话")
+    is_default: bool = Field(False, description="是否默认地址")
+
+class UserAddressUpdateSchema(UserAddressCreateSchema):
+    pass
+
+class AddCartSchema(BaseModel):
+    product_id: int = Field(..., description="商品ID")
+    qty: int = Field(1, description="数量")
+
+
+class UpdateCartSchema(BaseModel):
+    qty: int = Field(..., description="更新数量")
+
+class CheckoutSchema(BaseModel):
+    address_id: int = Field(..., description="用户收货地址")
+
+class UserPayMethodSchema(BaseModel):
+    method: str = "WALLET"

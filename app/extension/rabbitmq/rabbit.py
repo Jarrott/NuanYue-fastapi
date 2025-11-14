@@ -27,36 +27,7 @@ class RabbitClient:
         print(f"🐇 RabbitMQ 已连接: {url}")
         return self._channel
 
-    # async def publish_delay(self, queue: str, message: Any, delay_ms: int = 10000):
-    #     """
-    #     发布延迟消息（基于 x-delayed-message 插件）
-    #     """
-    #     channel = await self._ensure_channel()
-    #     if isinstance(message, (dict, list)):
-    #         message = json.dumps(message, ensure_ascii=False)
-    #     if isinstance(message, str):
-    #         message = message.encode()
-    #
-    #     args = {"x-delayed-type": "direct"}
-    #     exchange = await channel.declare_exchange(
-    #         "delay-exchange",
-    #         aio_pika.ExchangeType.X_DELAYED_MESSAGE,
-    #         durable=False,
-    #         arguments=args,
-    #     )
-    #
-    #     queue_obj = await channel.declare_queue(queue, durable=True)
-    #     await queue_obj.bind(exchange, routing_key=queue)
-    #
-    #     await exchange.publish(
-    #         aio_pika.Message(
-    #             body=message,
-    #             headers={"x-delay": delay_ms},
-    #             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-    #         ),
-    #         routing_key=queue,
-    #     )
-    #     print(f"📦 已发布延迟消息 -> {queue} | 延迟 {delay_ms / 1000:.1f}s")
+
     async def publish_delay(self, message: dict, delay_ms: int = 10_000):
         """发布延迟消息 (支持 '15m' / '2h' / timedelta / 秒整数)"""
 

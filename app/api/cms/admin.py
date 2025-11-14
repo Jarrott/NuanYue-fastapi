@@ -21,10 +21,11 @@ from app.api.cms.schema.admin import (
     FirebaseCreateUserSchema,
     KYCReviewSchema,
     ManualCreditSchema,
-    MockCreateOrderSchema, PushMessageSchema)
+    MockCreateOrderSchema, PushMessageSchema, CreateHomeFlashSchema)
 
 from app.api.cms.services.admin_ledger_service import AdminLedgerService
 from app.api.cms.services.firebase_admin_service import FirebaseAdminService
+from app.api.cms.services.flash_sale_service import create_home_flash_datetime_sale
 from app.api.cms.services.kyc_review_service import KYCService
 from app.api.cms.services.orders.mock_order_service import MockOrderService
 from app.api.cms.services.user_wallet_service import AdminWalletService
@@ -50,16 +51,16 @@ settings = get_current_settings()
 async def broadcast_system_announcement(msg: AdminBroadcastSchema):
     # 全局广播参数
     await notify_broadcast(
-        {"msg": f"{msg}"}
+        {"msg": f"{msg}","envent":"broadcast"}
     )
     return SuccessResponse.success(msg="信息已成功推送")
 
 
 @rp.post("/push/message/{uid}", response_model=SuccessResponse,
          dependencies=[Depends(admin_required)])
-async def broadcast_user_message(uid: int,data: PushMessageSchema):
+async def broadcast_user_message(uid: int, data: PushMessageSchema):
     await notify_user(uid, {
-        "event": "message_user",
+        "event": "otc_message",  # message_user,alert_message,order_message
         "msg": data.data
     })
 
@@ -136,11 +137,11 @@ async def manual_debit_api(payload: ManualCreditSchema, admin=Depends(admin_requ
     result = await WalletSecureService.debit_wallet_admin(
         uid=payload.user_id,
         amount=float(payload.amount),
-        operator_id=admin.username,                    # 记录后台操作者
-        remark=payload.reason or "后台扣款",             # 备注
+        operator_id=admin.username,  # 记录后台操作者
+        remark=payload.reason or "后台扣款",  # 备注
         # reference=payload.reference 如果你 schema 里有也可传入，保证幂等
     )
-    return result   # 已是 PedroResponse(JSONResponse)
+    return result  # 已是 PedroResponse(JSONResponse)
 
 
 @rp.get("/ledger/list", name="平台出入账列表（按 ledger 聚合）")
@@ -189,7 +190,7 @@ async def switch_market(state: int):
     """ state: 1 开启 | 0 关闭 币安数据推送ws"""
     r = await rds.instance()
     await r.set("binance:push:enabled", str(state))
-    status = "开启" if state==1 else "关闭"
+    status = "开启" if state == 1 else "关闭"
     return PedroResponse.success(msg=f"状态：{status}成功!")
 
 
@@ -221,7 +222,7 @@ async def create_firebase_user(data: FirebaseCreateUserSchema):
 @rp.put("/kyc/review", name="审核KYC内容")
 async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     uid = data.user_id
-    check = await KYCService.review_kyc(uid=str(uid), admin_id=admin.id,data=data)
+    check = await KYCService.review_kyc(uid=str(uid), admin_id=admin.id, data=data)
     if not check:
         return PedroResponse.fail(msg="审核失败")
     # ✅ 更新 PGSQL 用户扩展字段
@@ -234,6 +235,14 @@ async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     )
 
 
+@rp.post("/flash/datetime")
+async def create_home_flash(data:CreateHomeFlashSchema):
+    flash_sale = await create_home_flash_datetime_sale(body=data)
+    if not flash_sale:
+        return PedroResponse.fail(msg="相同的秒杀任务已存在")
+    return PedroResponse.success(msg=f"任务创建成功")
+
+
 @rp.post("/mock/orders")
 async def mock_orders(data: MockCreateOrderSchema):
     return await MockOrderService.simulate_orders(
@@ -241,4 +250,3 @@ async def mock_orders(data: MockCreateOrderSchema):
         order_count=data.user_count,
         # per_user=data.per_user,
     )
-

@@ -4,6 +4,7 @@
 # @File    : admin.py
 # @Software: PyCharm
 """
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
@@ -86,3 +87,9 @@ class MockCreateOrderSchema(BaseModel):
 
 class PushMessageSchema(BaseModel):
     data: Optional[str] = None
+
+class CreateHomeFlashSchema(BaseModel):
+    """管理员发布APP首页秒杀时间"""
+    title: str = None
+    start_time: datetime = Field(..., description="开始日期")
+    end_time: datetime = Field(..., description="结束日期")

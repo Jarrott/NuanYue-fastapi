@@ -5,9 +5,9 @@
 # @Software: PyCharm
 """
 import re
-from datetime import datetime
-from typing import List, Optional, Any, Dict, Self
-from pydantic import Field, validator, EmailStr, field_serializer
+from datetime import datetime, timezone
+from typing import List, Optional, Any, Dict, Self, ClassVar
+from pydantic import Field, validator, EmailStr, field_serializer, field_validator, computed_field
 from user_agents import parse as ua_parse
 from fastapi import Query
 from app.api.cms.schema import GroupIdListSchema, EmailSchema
@@ -68,3 +68,26 @@ class PageQuery:
     ):
         self.page = page
         self.size = size
+
+class FlashSaleTimeSchema(BaseModel):
+    flash_end_time: int | None = None
+    server_time: int | None = None
+    status:str | None = None
+
+    DATETIME_FORMAT: ClassVar[str] = "%Y-%m-%d %H:%M:%S"
+
+    @staticmethod
+    def _format_ts(ts: int | None):
+        if ts is None:
+            return None
+        # 毫秒 → 秒 → datetime
+        dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+        return dt.strftime(FlashSaleTimeSchema.DATETIME_FORMAT)
+
+    @computed_field
+    def flash_end_time_format(self) -> str | None:
+        return self._format_ts(self.flash_end_time)
+
+    @computed_field
+    def server_time_format(self) -> str | None:
+        return self._format_ts(self.server_time)

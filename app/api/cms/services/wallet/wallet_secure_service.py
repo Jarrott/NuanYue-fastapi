@@ -107,6 +107,7 @@ class WalletSecureService:
             operator_id: str = "system",
             currency: str = "USD",
             l_type: str = "debit",
+            status: str = "pending",
             remark: Optional[str] = None
     ):
         wallet_ref = doc(f"users/{uid}/store/wallet")

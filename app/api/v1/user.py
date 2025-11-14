@@ -18,8 +18,15 @@ from firebase_admin.firestore import firestore as fstore
 from sqlalchemy.util import await_only
 
 from app.api.v1.model.shop_product import ShopProduct
+from app.api.v1.model.user_address import UserAddress
+from app.api.v1.services.cart_service import CartService
+from app.api.v1.services.check_out_service import CheckoutService
 from app.api.v1.services.fs.favorite_service import FavoriteServiceFS
+from app.api.v1.services.order_state_service import OrderStateService
+from app.api.v1.services.store.store_follow_service import FavoriteStoreService
 from app.api.v1.services.store.store_review import StoreReviewService
+from app.api.v1.services.store.store_visit_service import StoreVisitService
+from app.api.v1.services.user_address_service import UserAddressService
 from app.extension.google_tools.firestore import fs_service
 from app.extension.network.network import get_client_ip, geo_lookup, calc_vpn_score
 from app.pedro.enums import KYCStatus
@@ -52,7 +59,13 @@ from app.api.v1.schema.user import (
     InformationUpdateSchema,
     RefreshTokenSchema,
     ForgotPasswordSendSchema,
-    ForgotPasswordResetSchema, ResetPasswordSendSchema, UserKycSchema, ToggleSchema, KycDetailSchema
+    ForgotPasswordResetSchema,
+    ResetPasswordSendSchema,
+    UserKycSchema,
+    ToggleSchema,
+    KycDetailSchema,
+    UserAddressCreateSchema, UserAddressUpdateSchema, AddCartSchema, UpdateCartSchema, CheckoutSchema,
+    UserPayMethodSchema
 )
 
 from app.api.cms.model.user import User
@@ -132,7 +145,7 @@ async def google_login(payload: dict, request: Request):
         user = await UserService.create_user_ar(
             username=g["email"],
             email=g["email"],
-            name=g["name"] or g["email"].split("@")[0],
+            nickname=g["name"] or g["email"].split("@")[0],
             password=g["email"].split("@")[1],
             avatar=g["picture"],
             inviter_code=payload.get("inviter_code"),
@@ -279,11 +292,11 @@ async def submit_otc(payload: OTCDepositSchema, current_user=Depends(login_requi
     return DepositCreateResponse(order_number=deposit.order_no)
 
 
-@rp.get("/kyc", name="KYC认证详情",response_model=PedroResponse[KycDetailSchema])
+@rp.get("/kyc", name="KYC认证详情", response_model=PedroResponse[KycDetailSchema])
 async def kyc_detail(user=Depends(login_required)):
-
     snap = await fs_service.get(f"users/{user.id}/kyc/info")
-    return PedroResponse.success(snap,schema=KycDetailSchema)
+    return PedroResponse.success(snap, schema=KycDetailSchema)
+
 
 @rp.post("/kyc", name="用户提交认证")
 async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
@@ -305,6 +318,53 @@ async def kyc_apply(data: UserKycSchema, user=Depends(login_required)):
     return PedroResponse.success(msg="KYC验证已提交，请等待审核")
 
 
+@rp.get("/address", name="用户地址列表", response_model=PedroResponse[UserAddressCreateSchema])
+async def get_address_list(user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await UserAddressService.list_addresses(uid)
+    return PedroResponse.success(result, schema=UserAddressCreateSchema)
+
+
+@rp.get("/address/{address_id}", name="地址详情", response_model=PedroResponse[UserAddressCreateSchema])
+async def get_address_detail(address_id: int, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await UserAddressService.get_address_detail(uid, address_id)
+    return SuccessResponse.success(result, schema=UserAddressCreateSchema)
+
+
+@rp.post("/address", name="买家用户添加地址")
+async def add_user_address(data: UserAddressCreateSchema, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    user = await UserAddressService.add_address(uid, data.model_dump())
+    if not user:
+        return SuccessResponse.fail(msg="地址添加失败")
+    return SuccessResponse.success(msg="地址提交成功")
+
+
+@rp.put("/address/{address_id}", name="买家更新地址")
+async def update_address(address_id: int, data: UserAddressUpdateSchema, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await UserAddressService.update_address(uid, address_id, data.model_dump())
+    return SuccessResponse.success(result)
+
+
+@rp.delete("/address/{address_id}", name="买家删除地址")
+async def delete_address(address_id: int, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    address = await UserAddress.get(user_id=uid, id=address_id)
+    if not address:
+        return PedroResponse.fail(msg="没有该地址")
+    await address.delete(commit=True)
+    return PedroResponse.success(msg="地址删除成功")
+
+
+@rp.patch("/address/{address_id}/default", name="买家设置默认地址")
+async def set_default_address(address_id: int, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    await UserAddressService.set_default(uid, address_id)
+    return PedroResponse.success(msg="已设为默认地址")
+
+
 @rp.post("/toggle", name="喜欢的商品")
 async def toggle_favorite(data: ToggleSchema, user=Depends(login_required)):
     product = await ShopProduct.get(id=data.product_id)
@@ -319,7 +379,103 @@ async def get_favorites(user=Depends(login_required)):
     return await FavoriteServiceFS.list(user.id, limit=20)
 
 
-@rp.post("/add/review",name="用户发布评论")
+@rp.post("/{store_id}/visit")
+async def store_visit(store_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    store = await StoreVisitService.record_visit(uid, store_id)
+    if not store:
+        PedroResponse.fail(msg="浏览错误")
+    return PedroResponse.success()
+
+
+@rp.post("/{store_id}/favorite")
+async def favorite_store(store_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return await FavoriteStoreService.favorite(uid, store_id)
+
+
+@rp.delete("/{store_id}/favorite")
+async def unfavorite_store(store_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return await FavoriteStoreService.unfavorite(uid, store_id)
+
+
+@rp.get("/{store_id}/favorite")
+async def is_favorite(store_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return await FavoriteStoreService.is_favorited(uid, store_id)
+
+
+@rp.get("/favorites")
+async def list_favorite_stores(uid: str = Depends(login_required)):
+    return await FavoriteStoreService.list_favorites(uid)
+
+@rp.get("/orders/{order_id}",name="订单详情")
+async def get_order_detail(order_id: int, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await OrderStateService.get_order_detail(uid, order_id)
+    return SuccessResponse.success(result)
+
+@rp.post("/orders/{order_id}/pay", name="用户支付商品")
+async def pay_order(data:UserPayMethodSchema,order_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await OrderStateService.pay(order_id, uid,method=data.method))
+
+
+@rp.post("/orders/{order_id}/cancel", name="用户取消购买")
+async def cancel_order(order_id: int, user: User = Depends(login_required)):
+    return SuccessResponse.success(await OrderStateService.cancel(order_id, user.id))
+
+
+@rp.post("/orders/{order_id}/ship")
+async def ship_order(order_id: int, tracking_number: str):
+    return SuccessResponse.success(await OrderStateService.ship(order_id, tracking_number))
+
+
+@rp.post("/orders/{order_id}/complete", name="用户完成收货")
+async def complete_order(order_id: int):
+    return SuccessResponse.success(await OrderStateService.complete(order_id))
+
+
+@rp.post("/cart/add", name="用户商品添加到购物车")
+async def add_to_cart(data: AddCartSchema, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await CartService.add_to_cart(uid, data.product_id, data.qty)
+    return SuccessResponse.success(result)
+
+
+@rp.post("/cart/checkout", name="结算购物车,生成账单")
+async def cart_checkout(data: CheckoutSchema, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    result = await CheckoutService.checkout(uid, address_id=data.address_id)
+    return SuccessResponse.success(result)
+
+
+@rp.patch("/cart/update/{product_id}", name="更新购物车商品")
+async def update_item(product_id: int, data: UpdateCartSchema, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await CartService.update_quantity(uid, product_id, data.qty))
+
+
+@rp.delete("/cart/{product_id}")
+async def remove_item(product_id: int, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await CartService.remove_item(uid, product_id))
+
+
+@rp.delete("/cart/clear")
+async def clear_cart(user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await CartService.clear(uid))
+
+
+@rp.get("/cart", name="查看购物车")
+async def get_cart(user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await CartService.get_cart(uid))
+
+
+@rp.post("/add/review", name="用户发布评论")
 async def add_review():
     await StoreReviewService.add_review(
         merchant_uid="264365076079841280",
