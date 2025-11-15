@@ -48,8 +48,10 @@ async def get_category(lang: str = Depends(get_lang)):
 
 
 @rp.get("/store/list", name="商家列表",response_model=PedroResponse[list[StoreSchema]])
-async def get_stores(limit: int = Query(20, description="分页数量"), start_after: str = None):
-    stores = await StoreServiceFS.list_stores(limit)
+async def get_stores(limit: int = Query(20, description="分页数量"),
+                     keyword: str = Query(),
+                     start_after: str = None):
+    stores = await StoreServiceFS.list_stores(limit,keyword)
     return PedroResponse.success(msg="查询成功",data=stores,schema=StoreSchema)
 
 

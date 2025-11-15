@@ -140,7 +140,6 @@ async def google_login(payload: dict, request: Request):
     ua_string = request.headers.get("User-Agent", "")
     device_info = UserAgentSchema.from_ua(ua_string)
 
-    await User.add_login_device(user.id, device_info.dict())
     if not user:
         user = await UserService.create_user_ar(
             username=g["email"],
@@ -149,9 +148,13 @@ async def google_login(payload: dict, request: Request):
             password=g["email"].split("@")[1],
             avatar=g["picture"],
             inviter_code=payload.get("inviter_code"),
+            register_type="OAUTH2",
             group_ids=payload.get("group_ids"),
         )
     tokens = await AuthService.create_tokens(user)
+
+    await User.add_login_device(user.id, device_info.dict())
+
 
     # 谷歌登录
     user_info = GoogleUserInfo(

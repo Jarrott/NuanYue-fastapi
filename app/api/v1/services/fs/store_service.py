@@ -18,13 +18,13 @@ class StoreServiceFS:
         return snap.to_dict() if snap.exists else {}
 
     @staticmethod
-    async def list_stores(limit: int = 20):
+    async def list_stores(limit: int = 20, keyword: str = None):
         db = fs
 
         query = (
             db.collection_group("store")
             .where(filter=FieldFilter("status", "==", "approved"))
-            .order_by("create_time", direction=firestore.Query.DESCENDING)
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
             .limit(limit)
         )
 
@@ -38,6 +38,18 @@ class StoreServiceFS:
                 continue
 
             data = doc.to_dict()
+
+
+            # 🔍 客户端关键字过滤（忽略大小写）
+            if keyword:
+                kw = keyword.lower()
+
+                if not (
+                    (data.get("store_name") and kw in data.get("store_name", "").lower()) or
+                    (data.get("desc") and kw in data.get("desc", "").lower())
+                ):
+                    continue
+
             uid = doc.reference.parent.parent.id  # 反推 user id
             data["uid"] = uid
 
@@ -53,5 +65,5 @@ class StoreServiceFS:
         for store, stats in zip(stores, stats_results):
             store.update({"stats": stats})
 
-        print(f"🔥 Loaded {len(stores)} stores with stats merged")
+        print(f"🔥 Loaded {len(stores)} stores with stats merged (keyword: {keyword})")
         return stores

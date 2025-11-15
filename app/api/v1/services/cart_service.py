@@ -101,6 +101,7 @@ class CartService:
                     "product_id": product.id,
                     "title": product.title,
                     "price": float(product.price),
+                    "thumbnail": product.thumbnail,
                     "quantity": cart_data["qty"],
                     "subtotal": subtotal
                 })
