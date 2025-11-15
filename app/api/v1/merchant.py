@@ -141,7 +141,7 @@ async def logs(query: LogsQuery, user=Depends(login_required)):
 # ====================================================
 @rp.post("/purchase")
 async def purchase_items(data: PurchaseSchema, user=Depends(login_required)):
-    return await MerchantService.purchase_batch(user.id, data.items)
+    return await MerchantService.purchase_batch(user.uuid, data.items)
 
 
 # ====================================================

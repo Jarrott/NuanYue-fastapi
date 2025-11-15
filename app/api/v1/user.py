@@ -65,7 +65,7 @@ from app.api.v1.schema.user import (
     ToggleSchema,
     KycDetailSchema,
     UserAddressCreateSchema, UserAddressUpdateSchema, AddCartSchema, UpdateCartSchema, CheckoutSchema,
-    UserPayMethodSchema
+    UserPayMethodSchema, TrackingNuberSchema
 )
 
 from app.api.cms.model.user import User
@@ -371,7 +371,7 @@ async def toggle_favorite(data: ToggleSchema, user=Depends(login_required)):
 
     if not product:
         return PedroResponse.fail(msg="没有找到数据")
-    return await FavoriteServiceFS.toggle(user.id, product.to_dict())
+    return await FavoriteServiceFS.toggle(user.uuid, product.to_dict())
 
 
 @rp.get("/toggle/list", name="喜欢的商品列表")
@@ -410,6 +410,30 @@ async def is_favorite(store_id: str, user: User = Depends(login_required)):
 async def list_favorite_stores(uid: str = Depends(login_required)):
     return await FavoriteStoreService.list_favorites(uid)
 
+@rp.get("/orders")
+async def get_orders(
+    request: Request,
+    page: int = 1,
+    page_size: int = 10,
+    status: str | None = None,
+    keyword: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: User = Depends(login_required)
+):
+    result = await OrderStateService.list_orders(
+        uid=str(user.uuid),
+        page=page,
+        page_size=page_size,
+        status=status,
+        keyword=keyword,
+        start_date=start_date,
+        end_date=end_date,
+        self_only=True
+    )
+    return SuccessResponse.success(result)
+
+
 @rp.get("/orders/{order_id}",name="订单详情")
 async def get_order_detail(order_id: int, user: User = Depends(login_required)):
     uid = str(user.uuid)
@@ -423,17 +447,19 @@ async def pay_order(data:UserPayMethodSchema,order_id: str, user: User = Depends
 
 
 @rp.post("/orders/{order_id}/cancel", name="用户取消购买")
-async def cancel_order(order_id: int, user: User = Depends(login_required)):
-    return SuccessResponse.success(await OrderStateService.cancel(order_id, user.id))
+async def cancel_order(order_id: str, user: User = Depends(login_required)):
+    uid = str(user.uuid)
+    return SuccessResponse.success(await OrderStateService.cancel(order_id, uid))
 
 
-@rp.post("/orders/{order_id}/ship")
-async def ship_order(order_id: int, tracking_number: str):
-    return SuccessResponse.success(await OrderStateService.ship(order_id, tracking_number))
+@rp.post("/orders/{order_id}/ship",name="发货-更新物流信息")
+async def ship_order(data:TrackingNuberSchema,order_id: str):
+    return SuccessResponse.success(await OrderStateService.ship(order_id, data.tracking_number))
 
 
 @rp.post("/orders/{order_id}/complete", name="用户完成收货")
-async def complete_order(order_id: int):
+async def complete_order(order_id: str, user: User = Depends(login_required)):
+
     return SuccessResponse.success(await OrderStateService.complete(order_id))
 
 
@@ -457,13 +483,13 @@ async def update_item(product_id: int, data: UpdateCartSchema, user: User = Depe
     return SuccessResponse.success(await CartService.update_quantity(uid, product_id, data.qty))
 
 
-@rp.delete("/cart/{product_id}")
-async def remove_item(product_id: int, user: User = Depends(login_required)):
+@rp.delete("/cart/{product_id}",name="清空购物车的某个商品")
+async def remove_item(product_id: str, user: User = Depends(login_required)):
     uid = str(user.uuid)
     return SuccessResponse.success(await CartService.remove_item(uid, product_id))
 
 
-@rp.delete("/cart/clear")
+@rp.delete("/cart",name="清空购物车")
 async def clear_cart(user: User = Depends(login_required)):
     uid = str(user.uuid)
     return SuccessResponse.success(await CartService.clear(uid))

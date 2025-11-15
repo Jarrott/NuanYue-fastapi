@@ -90,7 +90,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 
 # ==========================
-# 🚀 初始化函数（在 main.py 中调用）
+# 🚀 初始化函数（在 main.py1 中调用）
 # ==========================
 def setup_logger(app: FastAPI):
     """

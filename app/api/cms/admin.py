@@ -51,7 +51,7 @@ settings = get_current_settings()
 async def broadcast_system_announcement(msg: AdminBroadcastSchema):
     # 全局广播参数
     await notify_broadcast(
-        {"msg": f"{msg}","envent":"broadcast"}
+        {"msg": f"{msg}","event":"broadcast"}
     )
     return SuccessResponse.success(msg="信息已成功推送")
 

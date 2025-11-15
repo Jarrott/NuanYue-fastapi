@@ -511,3 +511,6 @@ class CheckoutSchema(BaseModel):
 
 class UserPayMethodSchema(BaseModel):
     method: str = "WALLET"
+
+class TrackingNuberSchema(BaseModel):
+    tracking_number:str = Field(...,description="物流单号")

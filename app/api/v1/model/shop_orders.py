@@ -46,6 +46,7 @@ class ShopOrders(InfoCrud):
         String(30), nullable=False, default="WALLET"
     )
     order_no: Mapped[str] = mapped_column(String(30), nullable=False, default=0)
+    tracking_number: Mapped[str] = mapped_column(String(60), nullable=False, default=0)
     # 收货地址 ID（引用 user_addresses）
     address_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
 

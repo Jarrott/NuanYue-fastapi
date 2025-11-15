@@ -55,7 +55,7 @@ class CartService:
 
     # 3️⃣ 删除商品
     @staticmethod
-    async def remove_item(uid: str, product_id: int):
+    async def remove_item(uid: str, product_id: str):
         r = await rds.instance()
         key = await CartService._key(uid)
         await r.hdel(key, str(product_id))

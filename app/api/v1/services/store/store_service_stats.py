@@ -50,15 +50,17 @@ class StoreServiceStats():
     # ======================================================
     @staticmethod
     async def sync_product_count(uid: str):
-        async with async_session_factory() as session:
-            result = await session.execute(ShopProduct.count_by_owner(uid))
-            count = result.scalar_one_or_none() or 0
+        path = f"users/{uid}/store/meta/products"
+        docs = await fs_service.list_documents(path)
 
-        stats_ref = fs_service.db.document(f"users/{uid}/store/meta/stats")
+        count = len([d for d in docs if d.exists])
+
+        stats_ref = fs_service.db.document(f"users/{uid}/store/meta/stats/info")
         stats_ref.set({
             "product_count": count,
             "update_time": SERVER_TIMESTAMP
         }, merge=True)
+
         return count
 
     # ======================================================

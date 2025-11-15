@@ -86,6 +86,7 @@ class MockCreateOrderSchema(BaseModel):
 
 
 class PushMessageSchema(BaseModel):
+    event: str = None
     data: Optional[str] = None
 
 class CreateHomeFlashSchema(BaseModel):

@@ -1,11 +1,14 @@
 from fastapi import APIRouter
 
+from app.api.cms.schema.admin import AdminBroadcastSchema, PushMessageSchema
 from app.api.v1.model.crypto_assets import CryptoAsset
 from app.config.settings_manager import get_current_settings
 from app.extension.rabbitmq.rabbit import rabbit
+from app.extension.websocket.tasks.ws_user_notify import notify_broadcast, notify_user
 from app.pedro import async_session_factory
 from app.pedro.exception import Success, NotFound
 from app.extension.redis.redis_client import rds
+from app.pedro.response import PedroResponse
 
 rp = APIRouter(prefix="/book", tags=["图书"])
 
@@ -40,3 +43,22 @@ async def example_usage():
         where={"coin_id": "btc"},
         data={"name": "Bitcoin", "market_cap": 1234567890},
     )
+
+
+@rp.post("/push/all/message")
+async def broadcast_system_announcement(msg: AdminBroadcastSchema):
+    # 全局广播参数
+    await notify_broadcast(
+        {"msg": f"{msg}","envent":"broadcast"}
+    )
+    return PedroResponse.success(msg="信息已成功推送")
+
+
+@rp.post("/push/message/{uid}")
+async def broadcast_user_message(uid: int, data: PushMessageSchema):
+    await notify_user(uid, {
+        "event": data.event,  # message_user,alert_message,order_message
+        "msg": data.data
+    })
+
+    return PedroResponse.success(msg="信息已成功推送")

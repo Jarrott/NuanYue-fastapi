@@ -1,9 +1,17 @@
 from fastapi import UploadFile, File, APIRouter
 
 from app.api.v1.schema.response import OneCreateResponse
+from app.api.v1.services.upload_service import upload_to_firebase
 from app.extension.cloud.qiniu.qiniu_cloud import qiniu_upload_file, qiniu_upload_batch
 from uuid import uuid4
+
 rp = APIRouter(prefix="/upload", tags=['上传服务'])
+
+
+@rp.post("/global")
+async def upload_image_api(file: UploadFile = File(...)):
+    result = await upload_to_firebase(file)
+    return result
 
 
 @rp.post("/one", name="上传服务")
@@ -13,8 +21,7 @@ async def upload_single(file: UploadFile = File(...)):
     return OneCreateResponse(url=url)
 
 
-
-@rp.post("/batch",name="多图上传")
+@rp.post("/batch", name="多图上传")
 async def upload_batch(files: list[UploadFile] = File(...)):
     result = await qiniu_upload_batch(files, prefix="images")
     return {"status": "ok", "files": result}

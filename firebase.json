@@ -1,0 +1,26 @@
+{
+  "hosting": [
+    {
+      "site": "ttte-a5dae",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        {
+          "source": "**",
+          "function": "cdnProxy"
+        }
+      ]
+    },
+    {
+      "site": "cdn-qi-yue-vip",
+      "rewrites": [
+        {
+          "source": "/**",
+          "function": "cdnProxy"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "runtime": "nodejs22"
+  }
+}
