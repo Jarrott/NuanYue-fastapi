@@ -23,11 +23,13 @@ from app.api.cms.schema.admin import (
     ManualCreditSchema,
     MockCreateOrderSchema, PushMessageSchema, CreateHomeFlashSchema)
 
+from sqlalchemy import text
 from app.api.cms.services.admin_ledger_service import AdminLedgerService
 from app.api.cms.services.firebase_admin_service import FirebaseAdminService
 from app.api.cms.services.flash_sale_service import create_home_flash_datetime_sale
 from app.api.cms.services.kyc_review_service import KYCService
 from app.api.cms.services.orders.mock_order_service import MockOrderService
+from app.api.cms.services.payment.payment_service import PaymentService
 from app.api.cms.services.user_wallet_service import AdminWalletService
 from app.api.v1.schema.response import SuccessResponse
 from app.api.cms.services.wallet.wallet_secure_service import WalletSecureService
@@ -38,6 +40,7 @@ from app.extension.redis.redis_client import rds
 from app.extension.websocket.tasks.ws_user_notify import notify_user, notify_broadcast
 
 from app.config.settings_manager import get_current_settings
+from app.pedro import async_session_factory
 from app.pedro.enums import KYCStatus
 from app.pedro.pedro_jwt import admin_required, jwt_service
 from app.pedro.response import PedroResponse
@@ -48,21 +51,19 @@ settings = get_current_settings()
 
 @rp.post("/push/message", response_model=SuccessResponse,
          dependencies=[Depends(admin_required)])
-async def broadcast_system_announcement(msg: AdminBroadcastSchema):
+async def broadcast_system_announcement(data: AdminBroadcastSchema):
     # 全局广播参数
+    lang = "en"
     await notify_broadcast(
-        {"msg": f"{msg}","event":"broadcast"}
+        {**data.model_dump(), "lang": lang},
     )
-    return SuccessResponse.success(msg="信息已成功推送")
+    return PedroResponse.success(msg="信息已成功推送")
 
 
 @rp.post("/push/message/{uid}", response_model=SuccessResponse,
          dependencies=[Depends(admin_required)])
 async def broadcast_user_message(uid: int, data: PushMessageSchema):
-    await notify_user(uid, {
-        "event": "otc_message",  # message_user,alert_message,order_message
-        "msg": data.data
-    })
+    await notify_user(uid=uid, event={**data.model_dump()}, lang=data.lang)
 
     return SuccessResponse.success(msg="信息已成功推送")
 
@@ -219,6 +220,12 @@ async def create_firebase_user(data: FirebaseCreateUserSchema):
         raise e
 
 
+@rp.get("/init/payment", name="初始化支付方式配置列表")
+async def init_payment(admin=Depends(admin_required)):
+    await PaymentService.write_payment_settings()
+    return PedroResponse.success(msg="初始化支付方式配置列表完成")
+
+
 @rp.put("/kyc/review", name="审核KYC内容")
 async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
     uid = data.user_id
@@ -236,7 +243,7 @@ async def review_kyc(data: KYCReviewSchema, admin=Depends(admin_required)):
 
 
 @rp.post("/flash/datetime")
-async def create_home_flash(data:CreateHomeFlashSchema):
+async def create_home_flash(data: CreateHomeFlashSchema):
     flash_sale = await create_home_flash_datetime_sale(body=data)
     if not flash_sale:
         return PedroResponse.fail(msg="相同的秒杀任务已存在")
@@ -250,3 +257,35 @@ async def mock_orders(data: MockCreateOrderSchema):
         order_count=data.user_count,
         # per_user=data.per_user,
     )
+
+@rp.get("/fix-db-id-sync")
+async def sync_postgres_sequences():
+
+    SQL_FIX = """
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN
+        SELECT c.relname AS table_name, 
+               a.attname AS column_name, 
+               s.relname AS sequence_name
+        FROM pg_class c
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0
+        JOIN pg_depend d ON d.refobjid = c.oid AND d.refobjsubid = a.attnum
+        JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+    LOOP
+        RAISE NOTICE 'Fixing sequence for %', r.table_name;
+
+        EXECUTE format(
+            'SELECT setval(''%I'', COALESCE((SELECT MAX(%I) FROM %I), 1), true)',
+            r.sequence_name, r.column_name, r.table_name
+        );
+    END LOOP;
+END $$;
+"""
+
+    async with async_session_factory() as session:
+        conn = await session.connection()
+        await conn.run_sync(lambda sync_conn: sync_conn.exec_driver_sql(SQL_FIX))
+
+    return PedroResponse.success("数据库 ID 已同步到最大值")

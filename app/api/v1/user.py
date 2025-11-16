@@ -17,6 +17,8 @@ from firebase_admin import auth as firebase_auth, firestore
 from firebase_admin.firestore import firestore as fstore
 from sqlalchemy.util import await_only
 
+from app.api.cms.services.invite_tree_service import InviteTreeService
+from app.api.cms.services.payment.payment_service import PaymentService
 from app.api.v1.model.shop_product import ShopProduct
 from app.api.v1.model.user_address import UserAddress
 from app.api.v1.services.cart_service import CartService
@@ -65,7 +67,7 @@ from app.api.v1.schema.user import (
     ToggleSchema,
     KycDetailSchema,
     UserAddressCreateSchema, UserAddressUpdateSchema, AddCartSchema, UpdateCartSchema, CheckoutSchema,
-    UserPayMethodSchema, TrackingNuberSchema
+    UserPayMethodSchema, TrackingNuberSchema, CreatePaymentSchema
 )
 
 from app.api.cms.model.user import User
@@ -110,7 +112,6 @@ async def login(data: LoginSchema, request: Request):
     """
     用户登录并获取 Token
     """
-    print(data.username)
     user = await UserService.get_by_username(data.username)
 
     if data.password_encrypted:
@@ -504,6 +505,13 @@ async def get_cart(user: User = Depends(login_required)):
     return SuccessResponse.success(await CartService.get_cart(uid))
 
 
+@rp.post("/payment")
+async def add_payment(data:CreatePaymentSchema, user: User = Depends(login_required)):
+    methods = await PaymentService.bind_payment_methods(str(user.uuid),data)
+    return SuccessResponse.success(methods)
+
+
+
 @rp.post("/add/review", name="用户发布评论")
 async def add_review():
     await StoreReviewService.add_review(
@@ -515,3 +523,17 @@ async def add_review():
         order_id=uuid.uuid4().hex,
     )
     return PedroResponse.success()
+
+
+@rp.get("/tree")
+async def get_invite_tree(current_user: User = Depends(login_required)):
+    """📌 获取邀请树"""
+    data = await InviteTreeService.get_invite_tree(str(current_user.id))
+    return PedroResponse.success(data)
+
+
+@rp.get("/stats")
+async def get_invite_stats(current_user: User = Depends(login_required)):
+    """📊 获取邀请统计（一级/二级/三级人数）"""
+    data = await InviteTreeService.get_invite_stats(current_user.id)
+    return PedroResponse.ok(data)

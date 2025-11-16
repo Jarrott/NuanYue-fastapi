@@ -19,7 +19,9 @@ class AdminDepositSchema(BaseModel):
 
 
 class AdminBroadcastSchema(BaseModel):
-    msg: str
+    title: str = Field(..., description="标题")
+    content: str = Field(..., description="内容")
+    level: str = "info"
 
 
 class FirebaseCreateUserSchema(BaseModel):
@@ -86,8 +88,10 @@ class MockCreateOrderSchema(BaseModel):
 
 
 class PushMessageSchema(BaseModel):
-    event: str = None
-    data: Optional[str] = None
+    title:str = Field(...)
+    content:str = Field(...)
+    event:str = Field(...)
+    lang:str = Field(...)
 
 class CreateHomeFlashSchema(BaseModel):
     """管理员发布APP首页秒杀时间"""

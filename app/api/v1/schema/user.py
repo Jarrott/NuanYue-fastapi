@@ -437,6 +437,7 @@ class StoreSchema(BaseModel):
     logo: Optional[str] = None
     store_name: Optional[str] = None
     stats: Optional[dict] = None
+    store_id: Optional[str] = None
 
 
 class SearchShopSchema(BaseModel):
@@ -514,3 +515,7 @@ class UserPayMethodSchema(BaseModel):
 
 class TrackingNuberSchema(BaseModel):
     tracking_number:str = Field(...,description="物流单号")
+
+class CreatePaymentSchema(BaseModel):
+    code: str = None
+    bind_info: Optional[dict] = None

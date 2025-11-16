@@ -6,9 +6,11 @@
 """
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.params import Query
 
 from app.api.cms.model.user import User
 from app.api.cms.schema.admin import DevicesStatusSchema
+from app.api.cms.services.invite_tree_service import InviteTreeService
 from app.api.cms.services.kyc_review_service import KYCService
 from app.api.v1.schema.response import LoginSuccessResponse, UserInformationResponse
 from app.api.v1.schema.user import LoginSchema, UserAgentSchema, UserInformationSchema, PageQuery, UserSchema
@@ -117,7 +119,7 @@ async def delete_user(uid: int, current_user=Depends(admin_required)):
     user = await User.get(uuid=uid)
     if not user:
         return PedroResponse.fail(msg="没有找到该用户")
-    await user.delete(commit=True)
+    await user.soft_delete(commit=True)
     return PedroResponse.success(msg="删除成功")
 
 

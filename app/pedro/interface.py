@@ -70,9 +70,9 @@ class BaseCrud(BaseModel):
         async with async_session_factory() as session:
             # 🔸 兼容外部传入完整查询
             if query is not None:
-                stmt = query
+                stmt = query.where(getattr(cls, "is_deleted", False) == False)
             else:
-                stmt = select(cls).filter_by(**filters)
+                stmt = select(cls).filter_by(**filters).where(getattr(cls, "is_deleted", False) == False)
 
             # 🔸 排序
             if order_by and hasattr(cls, order_by):
@@ -144,6 +144,7 @@ class BaseCrud(BaseModel):
 
         async with async_session_factory() as session:
             stmt = select(cls)
+            stmt = stmt.where(getattr(cls, "is_deleted", False) == False)
 
             # ======================================================
             # 🔹 等值过滤（布尔安全 + 兼容多数据库）
@@ -202,6 +203,8 @@ class BaseCrud(BaseModel):
             # 🔹 构造 count 查询（复用 where 条件）
             # ======================================================
             count_stmt = select(func.count(cls.id))
+            count_stmt = count_stmt.where(getattr(cls, "is_deleted", False) == False)
+
             for w in stmt._where_criteria:
                 count_stmt = count_stmt.where(w)
 
@@ -378,11 +381,18 @@ class InfoCrud(BaseCrud):
     delete_time = Column(DateTime(timezone=True))
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    async def soft_delete(self, session: AsyncSession) -> None:
-        self.is_deleted = True
-        self.delete_time = datetime.utcnow()
-        session.add(self)
-        await session.flush()
+    async def soft_delete(self: T, commit: bool = False) -> T:
+        async with async_session_factory() as session:
+            self.is_deleted = True
+            self.delete_time = datetime.utcnow()
+            session.add(self)
+            await session.flush()
+
+            if commit:
+                await session.commit()
+                await session.refresh(self)
+
+            return self
 
 
 # ======================================================

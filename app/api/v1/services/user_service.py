@@ -57,6 +57,10 @@ class UserService:
         await assign_invite_code(user)
         if inviter_code:
             await bind_inviter_relation(user, inviter_code)
+            # 清除邀请树缓存（不刷新，下一次查询自动重新构建）
+            tree_cache_key = f"user:invite_tree:{user.uuid}"
+            r = await rds.instance()
+            await r.delete(tree_cache_key)
 
 
         await user.set_extra(phone=phone)

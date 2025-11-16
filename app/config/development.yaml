@@ -14,6 +14,9 @@ app:
   server_domain: "https://api-test.qi-yue.vip"
   oss_domain: "https://up.qi-yue.vip/"
 
+i18n:
+  default: zh           # 系统默认语言
+
 # ===============================
 # 数据库配置
 # ===============================
@@ -168,3 +171,6 @@ aes:
 
 ycloud:
   apikey: ${YCLOUD_API_KEY}
+
+payment:
+  settings: ${PAYMENT_SETTINGS}

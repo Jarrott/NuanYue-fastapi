@@ -8,6 +8,7 @@ import time
 
 from fastapi import APIRouter, Query, Header, Depends
 
+from app.api.cms.services.payment.payment_service import PaymentService
 from app.api.v1.model.carousel import Carousel
 from app.api.v1.model.category import Category
 from app.api.v1.schema.public import FlashSaleTimeSchema
@@ -68,3 +69,8 @@ async def ping(payload: dict):
 async def send_email():
     await send_signup_email("JARROTT", "xqiqio7@gmail.com", "sasas")
     return PedroResponse.success()
+
+@rp.get("/payments",name="支付方式列表")
+async def list_payment_methods(lang: str = Depends(get_lang)):
+    data = await PaymentService.get_payment_methods(lang)
+    return PedroResponse.success(data)

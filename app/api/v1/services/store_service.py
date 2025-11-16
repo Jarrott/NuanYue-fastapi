@@ -66,7 +66,7 @@ class MerchantService:
         store_ref = fs.document(f"users/{uid}/store/profile")
 
         data = {
-            "store_id": uuid.uuid4().hex,
+            "store_id": str(uid),
             "store_name": name or "Unnamed Store",
             "email": email,
             "lang": lang or "en",

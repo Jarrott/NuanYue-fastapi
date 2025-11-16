@@ -1,9 +1,11 @@
 from app.api.v1.model.shop_orders import ShopOrderItem
 from app.api.v1.model.shop_orders import ShopOrders
+from app.api.v1.model.user_address import UserAddress
 
 from app.api.v1.services.cart_service import CartService
 from app.extension.rabbitmq.rabbit import rabbit
 from app.pedro import async_session_factory
+from app.pedro.response import PedroResponse
 from app.util.order_number_generator import OrderNumberGenerator
 
 
@@ -11,6 +13,10 @@ class CheckoutService:
 
     @staticmethod
     async def checkout(uid: str, address_id: int):
+        address_id = UserAddress.get(id=address_id)
+        if not address_id:
+            return PedroResponse.fail(msg="Address not found")
+
         cart = await CartService.get_cart(uid)
         if not cart["items"]:
             raise ValueError("Cart is empty")

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.api.cms.schema.admin import AdminBroadcastSchema, PushMessageSchema
 from app.api.v1.model.crypto_assets import CryptoAsset
@@ -9,6 +9,7 @@ from app.pedro import async_session_factory
 from app.pedro.exception import Success, NotFound
 from app.extension.redis.redis_client import rds
 from app.pedro.response import PedroResponse
+from app.util.get_lang import get_lang
 
 rp = APIRouter(prefix="/book", tags=["图书"])
 
@@ -46,19 +47,16 @@ async def example_usage():
 
 
 @rp.post("/push/all/message")
-async def broadcast_system_announcement(msg: AdminBroadcastSchema):
+async def broadcast_system_announcement(data: AdminBroadcastSchema, lang: str = Depends(get_lang)):
     # 全局广播参数
     await notify_broadcast(
-        {"msg": f"{msg}","envent":"broadcast"}
+        {**data.model_dump(), "lang": lang},
     )
     return PedroResponse.success(msg="信息已成功推送")
 
 
 @rp.post("/push/message/{uid}")
 async def broadcast_user_message(uid: int, data: PushMessageSchema):
-    await notify_user(uid, {
-        "event": data.event,  # message_user,alert_message,order_message
-        "msg": data.data
-    })
+    await notify_user(uid=uid, event={**data.model_dump()}, lang=data.lang)
 
     return PedroResponse.success(msg="信息已成功推送")
